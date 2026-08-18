@@ -14,6 +14,7 @@
     --th: 60px;
     /* ── Paleta principal ── */
     --clr-primary: #e91e8c;
+    --clr-primary-rgb: 233, 30, 140;
     --clr-primary-d: #c4156f;
     --clr-primary-l: #fce4f3;
     --clr-primary-xl: #fff0f9;
@@ -342,7 +343,7 @@ body {
     background: var(--clr-primary);
     color: #fff;
     font-weight: 700;
-    box-shadow: 0 4px 14px rgba(233, 30, 140, .35);
+    box-shadow: 0 4px 14px rgba(var(--clr-primary-rgb), .35);
 }
 
 .sidebar-nav-link.active i {
@@ -364,7 +365,7 @@ body {
     min-width: 18px;
     text-align: center;
     line-height: 1.5;
-    box-shadow: 0 2px 6px rgba(233, 30, 140, .4);
+    box-shadow: 0 2px 6px rgba(var(--clr-primary-rgb), .4);
 }
 
 
@@ -504,7 +505,7 @@ body {
     border-radius: 50%;
     object-fit: cover;
     display: block;
-    box-shadow: 0 2px 8px rgba(233, 30, 140, .2);
+    box-shadow: 0 2px 8px rgba(var(--clr-primary-rgb), .2);
 }
 
 .topbar-avatar-icon {
@@ -519,7 +520,7 @@ body {
     font-weight: 700;
     font-size: .85rem;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(233, 30, 140, .3);
+    box-shadow: 0 2px 8px rgba(var(--clr-primary-rgb), .3);
 }
 
 .topbar-avatar-initial {
@@ -534,7 +535,7 @@ body {
     font-weight: 700;
     font-size: .85rem;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(233, 30, 140, .3);
+    box-shadow: 0 2px 8px rgba(var(--clr-primary-rgb), .3);
     text-transform: uppercase;
 }
 
@@ -685,7 +686,7 @@ body {
 }
 
 .topbar-notify-item:hover {
-    background: rgba(233, 30, 140, .06);
+    background: rgba(var(--clr-primary-rgb), .06);
     color: inherit;
 }
 
@@ -808,7 +809,7 @@ body {
     padding: .85rem 1rem;
     font-size: .78rem;
     flex-shrink: 0;
-    border-top: 1px solid rgba(233, 30, 140, .25);
+    border-top: 1px solid rgba(var(--clr-primary-rgb), .25);
 }
 
 .auth-footer {
@@ -905,7 +906,7 @@ body.sidebar-collapsed .sidebar-logout-btn {
     width: 100%;
     max-width: 420px;
     border-radius: var(--card-r);
-    box-shadow: 0 20px 60px rgba(233, 30, 140, .25);
+    box-shadow: 0 20px 60px rgba(var(--clr-primary-rgb), .25);
     border-top: 4px solid var(--clr-primary);
 }
 
@@ -988,7 +989,7 @@ body.sidebar-collapsed .sidebar-logout-btn {
 
 .gradient-card:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 28px rgba(233, 30, 140, .22);
+    box-shadow: 0 10px 28px rgba(var(--clr-primary-rgb), .22);
 }
 
 .gradient-card .card-body {
@@ -1092,7 +1093,7 @@ body.sidebar-collapsed .sidebar-logout-btn {
 .form-control:focus,
 .form-select:focus {
     border-color: var(--clr-primary);
-    box-shadow: 0 0 0 .2rem rgba(233, 30, 140, .18);
+    box-shadow: 0 0 0 .2rem rgba(var(--clr-primary-rgb), .18);
 }
 
 .form-label {
@@ -1129,13 +1130,13 @@ body.sidebar-collapsed .sidebar-logout-btn {
 .btn-primary {
     background: linear-gradient(135deg, var(--clr-primary), var(--clr-primary-d));
     border: none;
-    box-shadow: 0 3px 10px rgba(233, 30, 140, .3);
+    box-shadow: 0 3px 10px rgba(var(--clr-primary-rgb), .3);
 }
 
 .btn-primary:hover,
 .btn-primary:focus {
     background: linear-gradient(135deg, var(--clr-primary-d), #9c1158);
-    box-shadow: 0 5px 16px rgba(233, 30, 140, .4);
+    box-shadow: 0 5px 16px rgba(var(--clr-primary-rgb), .4);
     border: none;
 }
 
@@ -1151,7 +1152,7 @@ body.sidebar-collapsed .sidebar-logout-btn {
 
 .btn-pulse {
     animation: pulse-btn 2s infinite;
-    box-shadow: 0 0 0 0 rgba(233, 30, 140, .7);
+    box-shadow: 0 0 0 0 rgba(var(--clr-primary-rgb), .7);
 }
 
 /* DataTables Buttons — el plugin asigna btn-secondary; forzar colores semánticos */
@@ -1223,13 +1224,13 @@ div.dt-buttons .btn.btn-info:hover {
 
 @keyframes pulse-btn {
     0% {
-        box-shadow: 0 0 0 0 rgba(233, 30, 140, .7);
+        box-shadow: 0 0 0 0 rgba(var(--clr-primary-rgb), .7);
     }
     70% {
-        box-shadow: 0 0 0 10px rgba(233, 30, 140, 0);
+        box-shadow: 0 0 0 10px rgba(var(--clr-primary-rgb), 0);
     }
     100% {
-        box-shadow: 0 0 0 0 rgba(233, 30, 140, 0);
+        box-shadow: 0 0 0 0 rgba(var(--clr-primary-rgb), 0);
     }
 }
 
@@ -1331,7 +1332,7 @@ div.dt-buttons .btn.btn-info:hover {
     border-left: 4px solid var(--clr-primary);
     background: #fff;
     border-radius: 0 .85rem .85rem 0;
-    box-shadow: 0 2px 8px rgba(233, 30, 140, .07);
+    box-shadow: 0 2px 8px rgba(var(--clr-primary-rgb), .07);
 }
 
 .suggestion-item .suggestion-text {
@@ -1386,7 +1387,7 @@ div.dt-buttons .btn.btn-info:hover {
     padding: 1.5rem 2rem;
     border-radius: var(--card-r);
     margin-bottom: 1.5rem;
-    box-shadow: 0 6px 24px rgba(233, 30, 140, .25);
+    box-shadow: 0 6px 24px rgba(var(--clr-primary-rgb), .25);
 }
 
 .modal-header {
@@ -1475,7 +1476,7 @@ div.dt-buttons .btn.btn-info:hover {
 
 .dataTables_filter input:focus {
     border-color: var(--clr-primary);
-    box-shadow: 0 0 0 .2rem rgba(233, 30, 140, .18);
+    box-shadow: 0 0 0 .2rem rgba(var(--clr-primary-rgb), .18);
     outline: none;
 }
 
@@ -1525,7 +1526,7 @@ div.dt-buttons .btn.btn-info:hover {
     font-weight: 800;
     font-size: .88rem;
     flex-shrink: 0;
-    box-shadow: 0 3px 10px rgba(233, 30, 140, .35);
+    box-shadow: 0 3px 10px rgba(var(--clr-primary-rgb), .35);
     text-transform: uppercase;
 }
 
@@ -2327,7 +2328,7 @@ div.dt-buttons .btn.btn-info:hover {
     margin-bottom: 1.75rem;
     position: relative;
     overflow: hidden;
-    border: 1px solid rgba(233, 30, 140, .18);
+    border: 1px solid rgba(var(--clr-primary-rgb), .18);
     box-shadow: 0 8px 32px rgba(0, 0, 0, .28);
 }
 
@@ -2338,14 +2339,14 @@ div.dt-buttons .btn.btn-info:hover {
     right: -60px;
     width: 260px;
     height: 260px;
-    background: radial-gradient(circle, rgba(233, 30, 140, .18) 0%, transparent 70%);
+    background: radial-gradient(circle, rgba(var(--clr-primary-rgb), .18) 0%, transparent 70%);
     pointer-events: none;
 }
 
 .db-hero-month {
     font-size: .78rem;
     font-weight: 700;
-    color: rgba(233, 30, 140, .85);
+    color: rgba(var(--clr-primary-rgb), .85);
     text-transform: uppercase;
     letter-spacing: .1em;
     margin-bottom: .35rem;
@@ -2417,7 +2418,7 @@ div.dt-buttons .btn.btn-info:hover {
     font-size: 1.05rem;
     font-weight: 800;
     cursor: pointer;
-    box-shadow: 0 6px 24px rgba(233, 30, 140, .45);
+    box-shadow: 0 6px 24px rgba(var(--clr-primary-rgb), .45);
     transition: opacity .2s, transform .2s;
     letter-spacing: .02em;
 }
@@ -2727,7 +2728,7 @@ div.dt-buttons .btn.btn-info:hover {
     border-radius: var(--card-r);
     color: #fff;
     margin-bottom: 1.25rem;
-    box-shadow: 0 6px 24px rgba(233, 30, 140, .28);
+    box-shadow: 0 6px 24px rgba(var(--clr-primary-rgb), .28);
 }
 
 .emp-hero-greeting {
@@ -3144,7 +3145,7 @@ div.dt-buttons .btn.btn-info:hover {
 
 .emp-timeline-dot.salida {
     background: var(--clr-primary);
-    box-shadow: 0 0 6px rgba(233, 30, 140, .4);
+    box-shadow: 0 0 6px rgba(var(--clr-primary-rgb), .4);
 }
 
 .emp-timeline-content {
@@ -3357,7 +3358,7 @@ div.dt-buttons .btn.btn-info:hover {
 .emp-input:focus {
     outline: none;
     border-color: var(--clr-primary);
-    box-shadow: 0 0 0 3px rgba(233, 30, 140, .12);
+    box-shadow: 0 0 0 3px rgba(var(--clr-primary-rgb), .12);
 }
 
 .emp-textarea {
@@ -3404,7 +3405,7 @@ div.dt-buttons .btn.btn-info:hover {
     cursor: pointer;
     transition: opacity var(--tr), transform var(--tr);
     text-decoration: none;
-    box-shadow: 0 4px 14px rgba(233, 30, 140, .3);
+    box-shadow: 0 4px 14px rgba(var(--clr-primary-rgb), .3);
 }
 
 .emp-btn-primary:hover {
@@ -3595,23 +3596,23 @@ div.dt-buttons .btn.btn-info:hover {
 }
 
 .emp-input-highlight {
-    border-color: rgba(233, 30, 140, .45);
+    border-color: rgba(var(--clr-primary-rgb), .45);
     background: #fffafb;
 }
 
 .emp-swap-colleague-select .emp-input-highlight:focus {
     border-color: var(--clr-primary);
-    box-shadow: 0 0 0 .2rem rgba(233, 30, 140, .15);
+    box-shadow: 0 0 0 .2rem rgba(var(--clr-primary-rgb), .15);
 }
 
 .emp-req-tab:hover {
     color: var(--clr-primary);
-    border-color: rgba(233, 30, 140, .25);
+    border-color: rgba(var(--clr-primary-rgb), .25);
 }
 
 .emp-req-tab.active {
-    background: linear-gradient(135deg, rgba(233, 30, 140, .12), rgba(6, 182, 212, .1));
-    border-color: rgba(233, 30, 140, .35);
+    background: linear-gradient(135deg, rgba(var(--clr-primary-rgb), .12), rgba(6, 182, 212, .1));
+    border-color: rgba(var(--clr-primary-rgb), .35);
     color: var(--clr-primary);
 }
 
@@ -3689,7 +3690,7 @@ div.dt-buttons .btn.btn-info:hover {
     cursor: pointer;
     margin-bottom: 0;
     transition: background var(--tr);
-    box-shadow: 0 4px 14px rgba(233, 30, 140, .25);
+    box-shadow: 0 4px 14px rgba(var(--clr-primary-rgb), .25);
 }
 
 .emp-collapse-btn[aria-expanded="true"] {
@@ -3850,7 +3851,7 @@ div.dt-buttons .btn.btn-info:hover {
     background: var(--clr-primary);
     border-color: var(--clr-primary);
     color: #fff;
-    box-shadow: 0 3px 10px rgba(233, 30, 140, .25);
+    box-shadow: 0 3px 10px rgba(var(--clr-primary-rgb), .25);
 }
 
 .emp-week-group {
@@ -3885,7 +3886,7 @@ div.dt-buttons .btn.btn-info:hover {
     right: 0;
     height: 64px;
     background: var(--sidebar-bg2);
-    border-top: 1px solid rgba(233, 30, 140, .2);
+    border-top: 1px solid rgba(var(--clr-primary-rgb), .2);
     display: flex;
     align-items: stretch;
     z-index: 1030;
@@ -4690,4 +4691,89 @@ body.portal-casapav .emp-bnav-item--logout:hover {
 @media (max-width: 768px) {
     .cal-cell { min-height: 64px; font-size: .7rem; }
     .cal-cell-shift { display: none; }
+}
+
+/* Cabecera oscura de modales del dashboard (base compartida; antes era un
+   style inline en dashboard.php — el tema Moderna la re-declara abajo). */
+.db-dark-head {
+    background: linear-gradient(135deg, #18111a, #2d1040);
+    color: #fff;
+    border-bottom: 1px solid rgba(var(--clr-primary-rgb), .25);
+}
+
+/* --------------------------------------------------------------------------
+   TEMA POR ORGANIZACIÓN: MODERNA (Suite P&M)
+   Se activa con body.org-moderna (org_helper.php + header.php).
+   Paleta de hoursapp-moderna (tailwind.config.js):
+   #0a3d62 azul oscuro · #1e90ff azul dodger · #82d1b8 verde teal
+
+   Las sombras/tintes rosas del CSS base derivan de --clr-primary-rgb, así
+   que se re-tematizan solos al redefinir las variables. Abajo solo quedan
+   las reglas cuyo color está hardcodeado con hex en el CSS base (mismos
+   selectores, misma propiedad).
+   -------------------------------------------------------------------------- */
+
+body.org-moderna {
+    --clr-primary: #1e90ff;
+    --clr-primary-rgb: 30, 144, 255;
+    --clr-primary-d: #1567c4;
+    --clr-primary-l: #e1efff;
+    --clr-primary-xl: #f0f7ff;
+    --clr-secondary: #82d1b8;
+    --sidebar-active-bg: #1e90ff;
+}
+
+body.org-moderna .btn-primary:hover,
+body.org-moderna .btn-primary:focus {
+    background: linear-gradient(135deg, var(--clr-primary-d), #0a3d62); /* base: #9c1158 */
+}
+
+body.org-moderna .table thead th {
+    /* base: gradiente rosa con texto blanco. En Moderna: cabecera plana y
+       legible — tinte del tema con texto azul oscuro, como su app original. */
+    background: var(--clr-primary-l);
+    color: #0a3d62;
+}
+
+body.org-moderna .admin-table thead th {
+    /* restaura el estilo neutro de admin-table (la regla de arriba lo pisaría
+       por especificidad) */
+    background: #f8fafc;
+    color: #475569;
+}
+
+body.org-moderna .card-header-pink {
+    background: linear-gradient(135deg, var(--clr-primary) 0%, var(--clr-primary-d) 100%) !important; /* base: #c2185b */
+}
+
+body.org-moderna .welcome-banner {
+    background: linear-gradient(135deg, var(--clr-primary) 0%, #0a3d62 100%); /* base: #9c27b0 */
+}
+
+body.org-moderna .bg-gradient-blue {
+    background: linear-gradient(135deg, #1e90ff, #0a3d62); /* base: #e91e8c → #9c27b0 */
+}
+
+body.org-moderna .db-hero {
+    background: linear-gradient(135deg, #071a2b 0%, #0a3d62 60%, #0c2b45 100%); /* base: violeta oscuro */
+}
+
+body.org-moderna .db-hero-month {
+    color: rgba(130, 209, 184, .95); /* base: rosa */
+}
+
+body.org-moderna .db-hero-stat-val.pink {
+    color: #5eb1ff; /* base: rosa */
+}
+
+body.org-moderna .db-close-btn {
+    background: linear-gradient(135deg, #1e90ff, #1567c4); /* base: #e91e8c → #c4156f */
+}
+
+body.org-moderna .db-emp-bar {
+    background: linear-gradient(90deg, #1e90ff, #82d1b8); /* base: #e91e8c → #9c27b0 */
+}
+
+body.org-moderna .db-dark-head {
+    background: linear-gradient(135deg, #071a2b, #0a3d62) !important;
 }
