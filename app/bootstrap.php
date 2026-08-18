@@ -35,6 +35,7 @@ require_once 'helpers/company_brand_helper.php';
 require_once 'helpers/system_settings_helper.php';
 require_once 'helpers/employee_portal_helper.php';
 require_once 'helpers/salary_advance_helper.php';
+require_once 'helpers/org_helper.php';
 
 $composerAutoload = dirname(__DIR__) . '/vendor/autoload.php';
 if (file_exists($composerAutoload)) {

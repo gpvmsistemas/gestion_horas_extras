@@ -66,6 +66,28 @@ $empleados  = count(array_filter($users, fn($u) => $u->role === 'empleado'));
 </div>
 
 <div class="admin-toolbar flex-wrap">
+    <?php if (function_exists('org_is_moderna') && org_is_moderna()):
+        // Suite P&M: Moderna unifica — se filtra por ciudad y sucursal
+        // (taxonomía de hoursapp; filtra la nómina cuando se migre con sucursal asignada).
+        $orgCities = org_branches_by_city();
+    ?>
+    <span class="admin-toolbar-label"><i class="fas fa-city me-1"></i>Ciudad</span>
+    <div class="mb-2 mb-md-0 me-2">
+        <select id="orgCityFilter" class="form-select form-select-sm" style="min-width:160px">
+            <option value="" selected>Todas</option>
+            <?php foreach (array_keys($orgCities) as $orgCity): ?>
+            <option value="<?php echo htmlspecialchars($orgCity); ?>"><?php echo htmlspecialchars($orgCity); ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <span class="admin-toolbar-label"><i class="fas fa-store me-1"></i>Sucursal</span>
+    <div class="mb-2 mb-md-0 me-2">
+        <select id="orgBranchFilter" class="form-select form-select-sm" style="min-width:190px" disabled title="Elegí primero una ciudad">
+            <option value="" selected>Todas</option>
+        </select>
+    </div>
+    <script>window.ORG_BRANCHES_BY_CITY = <?php echo json_encode($orgCities, JSON_UNESCAPED_UNICODE); ?>;</script>
+    <?php else: ?>
     <span class="admin-toolbar-label"><i class="fas fa-building me-1"></i>Empresa</span>
     <div class="admin-filter-group mb-2 mb-md-0">
         <a href="<?php echo URLROOT; ?>/admin/users" class="admin-filter-chip <?php echo $companyFilter === 0 ? 'active' : ''; ?>">Todas</a>
@@ -76,6 +98,7 @@ $empleados  = count(array_filter($users, fn($u) => $u->role === 'empleado'));
         </a>
         <?php endforeach; ?>
     </div>
+    <?php endif; ?>
     <span class="admin-toolbar-label"><i class="fas fa-filter me-1"></i>Estado</span>
     <div class="admin-filter-group">
         <button class="admin-filter-chip active" data-filter="all">Todos</button>
@@ -203,6 +226,33 @@ $empleados  = count(array_filter($users, fn($u) => $u->role === 'empleado'));
     });
 
     search.addEventListener('input', applyFilters);
+
+    // Suite P&M (vista Moderna): selector Sucursal dependiente de Ciudad.
+    // Por ahora es de interfaz: filtrará la nómina cuando los usuarios
+    // migrados tengan sucursal asignada (data-branch en cada tarjeta).
+    const cityFilter   = document.getElementById('orgCityFilter');
+    const branchFilter = document.getElementById('orgBranchFilter');
+    if (cityFilter && branchFilter && window.ORG_BRANCHES_BY_CITY) {
+        cityFilter.addEventListener('change', () => {
+            const city = cityFilter.value;
+            branchFilter.innerHTML = '<option value="" selected>Todas</option>';
+            if (city && window.ORG_BRANCHES_BY_CITY[city]) {
+                window.ORG_BRANCHES_BY_CITY[city].forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    branchFilter.appendChild(opt);
+                });
+                branchFilter.disabled = false;
+                branchFilter.title = '';
+            } else {
+                branchFilter.disabled = true;
+                branchFilter.title = 'Elegí primero una ciudad';
+            }
+            applyFilters();
+        });
+        branchFilter.addEventListener('change', applyFilters);
+    }
 })();
 </script>
 

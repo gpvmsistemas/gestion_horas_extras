@@ -990,8 +990,22 @@ class AdminController {
     public function users() {
         requireAdminOnly();
         $companyFilter = isset($_GET['company_id']) ? (int)$_GET['company_id'] : 0;
+        // Suite P&M: cada organización ve solo su nómina.
+        // Moderna => forzado a la empresa Moderna; Paviotti => la empresa Moderna
+        // queda excluida del listado "Todas" y de los chips de filtro.
+        $modernaCompanyId = function_exists('org_moderna_company_id') ? org_moderna_company_id() : null;
+        $isModernaView = function_exists('org_is_moderna') && org_is_moderna();
+        if ($isModernaView && $modernaCompanyId) {
+            $companyFilter = $modernaCompanyId;
+        } elseif (!$isModernaView && $modernaCompanyId && $companyFilter === $modernaCompanyId) {
+            $companyFilter = 0;
+        }
         $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null);
         $companies = $this->companyModel->getAllCompanies();
+        if (!$isModernaView && $modernaCompanyId) {
+            $users = array_values(array_filter($users, fn($u) => (int)($u->company_id ?? 0) !== $modernaCompanyId));
+            $companies = array_values(array_filter($companies, fn($c) => (int)$c->id !== $modernaCompanyId));
+        }
         $this->view('admin/users', [
             'users'          => $users,
             'companies'      => $companies,
@@ -2595,6 +2609,12 @@ class AdminController {
         $companyId = requireAdminCompany('admin/dashboard');
         $workDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') ? $_GET['date'] : date('Y-m-d');
         $dashboard = (new HrAlertsService())->buildDashboard($companyId, $workDate);
+        // Suite P&M: los legajos sin mapear vienen de los relojes de Paviotti
+        // (marcaciones_cache no distingue empresa); en la vista Moderna se ocultan.
+        if (function_exists('org_is_moderna') && org_is_moderna()) {
+            $dashboard['unmapped_legajos'] = [];
+            $dashboard['unmapped_count'] = 0;
+        }
         $this->view('admin/hr_alerts', array_merge(['company_id' => $companyId], $dashboard));
     }
 

@@ -187,7 +187,16 @@ class NotificationsAdminController {
     }
 
     // --- Recibos ---
+    // Suite P&M: la organización Moderna no usa el módulo de recibos.
+    private function requirePayStubsOrg() {
+        if (function_exists('org_hides_pay_stubs') && org_hides_pay_stubs()) {
+            $_SESSION['flash_error'] = 'La organización Moderna no utiliza el módulo de recibos de sueldo.';
+            redirect('notificationsAdmin/index');
+        }
+    }
+
     public function payStubs() {
+        $this->requirePayStubsOrg();
         ensureAdminCompanySession();
         $companyId = requireAdminCompany('admin/dashboard');
         $search = trim($_GET['q'] ?? '');
@@ -200,6 +209,7 @@ class NotificationsAdminController {
     }
 
     public function uploadPayStub() {
+        $this->requirePayStubsOrg();
         csrf_verify();
         $userId = (int)($_POST['user_id'] ?? 0);
         requireUserInAdminCompany($userId, 'notificationsAdmin/payStubs');

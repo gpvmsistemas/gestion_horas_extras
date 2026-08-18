@@ -101,13 +101,23 @@ $_brandName = function_exists('company_brand_display_name') ? company_brand_disp
 $_brandSubtitle = function_exists('company_brand_subtitle') ? company_brand_subtitle() : 'Gestión de RRHH';
 $_bodyBrandClass = function_exists('company_brand_body_class') ? company_brand_body_class() : '';
 $_usesCpNav = function_exists('current_user_uses_casapav_tasks') && current_user_uses_casapav_tasks();
+// Suite P&M: la organización Moderna pisa la marca por empresa
+// (nombre, logo, tema de colores) y unifica: sin selector de empresa.
+if (function_exists('org_brand_name')) {
+    $_brandName = org_brand_name($_brandName);
+    $_brandSubtitle = org_brand_subtitle($_brandSubtitle);
+    $_brandLogoUrl = org_brand_logo_url($_brandLogoUrl);
+    $_bodyBrandClass = trim($_bodyBrandClass . ' ' . org_body_class());
+}
+$_orgHidesPaviottiModules = function_exists('org_hides_paviotti_business_modules') && org_hides_paviotti_business_modules();
+$_orgIsModerna = function_exists('org_is_moderna') && org_is_moderna();
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo SITENAME; ?></title>
+    <title><?php echo (function_exists('org_is_moderna') && org_is_moderna()) ? 'Suite Red Farmacias Moderna' : SITENAME; ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
@@ -196,6 +206,31 @@ echo isLoggedIn()
 
             <?php else: ?>
 
+            <?php if (function_exists('org_hours_registry_enabled') && org_hours_registry_enabled()): ?>
+            <div class="sidebar-section-title">Registro de Horas</div>
+
+            <a href="<?php echo URLROOT; ?>/registroHoras/vistaGeneral"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/vistaGeneral'); ?>">
+                <i class="fas fa-fw fa-table"></i><span>Vista general</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/carga"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/carga'); ?>">
+                <i class="fas fa-fw fa-clock"></i><span>Carga de horarios</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/horarios"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/horarios'); ?>">
+                <i class="fas fa-fw fa-calendar-week"></i><span>Horarios por empleado</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/duplicar"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/duplicar'); ?>">
+                <i class="fas fa-fw fa-copy"></i><span>Duplicación</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/cargaMasiva"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/cargaMasiva'); ?>">
+                <i class="fas fa-fw fa-layer-group"></i><span>Carga masiva</span>
+            </a>
+            <?php endif; ?>
+
             <div class="sidebar-section-title">Personal</div>
 
             <a href="<?php echo URLROOT; ?>/admin/users"
@@ -232,7 +267,7 @@ echo isLoggedIn()
             </a>
 
             <?php if (function_exists('learning_is_ready') && learning_is_ready()): ?>
-            <div>Capacitación</div>
+            <div class="sidebar-section-title">Capacitación</div>
             <a href="<?php echo URLROOT; ?>/trainingAdmin/courses"
                class="sidebar-nav-link <?php echo navIsActive('/trainingAdmin'); ?>">
                 <i class="fas fa-fw fa-graduation-cap"></i><span>Cursos</span>
@@ -261,7 +296,7 @@ echo isLoggedIn()
             <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (function_exists('prode_is_ready') && prode_is_ready()): ?>
+            <?php if (function_exists('prode_is_ready') && prode_is_ready() && !$_orgHidesPaviottiModules): ?>
             <div class="sidebar-section-title">PRODE</div>
             <a href="<?php echo URLROOT; ?>/prodeAdmin/ranking"
                class="sidebar-nav-link <?php echo navIsActive('/prodeAdmin'); ?>">
@@ -271,10 +306,12 @@ echo isLoggedIn()
 
             <div class="sidebar-section-title">Operaciones</div>
 
+            <?php if (!$_orgHidesPaviottiModules): ?>
             <a href="<?php echo URLROOT; ?>/ecofarma/index"
                class="sidebar-nav-link <?php echo navIsActive('/ecofarma'); ?>">
                 <i class="fas fa-fw fa-pills"></i><span>Comisiones Ecofarma</span>
             </a>
+            <?php endif; ?>
             <a href="<?php echo URLROOT; ?>/admin/requests"
                class="sidebar-nav-link <?php echo navIsActive('/admin/requests', '/admin/approveRequest', '/admin/rejectRequest', '/admin/editRequest'); ?>">
                 <i class="fas fa-fw fa-inbox"></i>
@@ -304,6 +341,7 @@ echo isLoggedIn()
             </a>
             <?php endif; ?>
             <?php if (function_exists('cp_tasks_is_ready') && cp_tasks_is_ready()
+                && !$_orgHidesPaviottiModules
                 && function_exists('cp_staff_can_view') && cp_staff_can_view()
                 && function_exists('company_uses_casapav_tasks') && company_uses_casapav_tasks(adminCompanyId())): ?>
             <a href="<?php echo URLROOT; ?>/cpTaskAdmin/pending"
@@ -332,6 +370,7 @@ echo isLoggedIn()
 
             <div class="sidebar-section-title">Sistema</div>
 
+            <?php if (!$_orgIsModerna): // Infraestructura de relojes/multiempresa de Paviotti; Moderna tendrá su propio sync (CrossChex) ?>
             <a href="<?php echo URLROOT; ?>/admin/sync"
                class="sidebar-nav-link <?php echo navIsActive('/admin/sync', '/admin/runApiSync'); ?>">
                 <i class="fas fa-fw fa-sync-alt"></i><span>Sincronización</span>
@@ -352,6 +391,7 @@ echo isLoggedIn()
                class="sidebar-nav-link <?php echo navIsActive('/admin/companies'); ?>">
                 <i class="fas fa-fw fa-building"></i><span>Empresas</span>
             </a>
+            <?php endif; ?>
             <?php if (function_exists('notifications_is_ready') && notifications_is_ready()): ?>
             <a href="<?php echo URLROOT; ?>/notificationsAdmin"
                class="sidebar-nav-link <?php echo navIsActive('/notificationsAdmin'); ?>">
@@ -435,7 +475,8 @@ echo isLoggedIn()
                 <i class="fas fa-fw fa-poll"></i><span>Encuestas</span>
             </a>
             <?php endif; ?>
-            <?php if (function_exists('notifications_is_ready') && notifications_is_ready() && employee_portal_can('pay_stubs')): ?>
+            <?php if (function_exists('notifications_is_ready') && notifications_is_ready() && employee_portal_can('pay_stubs')
+                && !(function_exists('org_hides_pay_stubs') && org_hides_pay_stubs())): ?>
             <a href="<?php echo URLROOT; ?>/employee/payStubs"
                class="sidebar-nav-link <?php echo navIsActive('/employee/payStubs', '/employee/payStubSign'); ?>">
                 <i class="fas fa-fw fa-file-invoice-dollar"></i><span>Mis recibos</span>
@@ -463,6 +504,17 @@ echo isLoggedIn()
     </div>
 
     <div class="sidebar-footer">
+        <?php // Vuelta al modo Paviotti mientras el simulador (demo) está activo; desaparece con employee_group real. ?>
+        <?php if (function_exists('org_simulator_available') && org_simulator_available() && $_orgIsModerna): ?>
+        <form method="post" action="<?php echo URLROOT; ?>/registroHoras/setOrg" class="mb-1">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="org_group" value="paviotti">
+            <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+            <button type="submit" class="sidebar-logout-btn w-100" style="background:none;border:0;text-align:left;">
+                <i class="fas fa-fw fa-arrow-right-arrow-left"></i><span>Vista Paviotti (demo)</span>
+            </button>
+        </form>
+        <?php endif; ?>
         <a href="<?php echo URLROOT; ?>/login/logout" class="sidebar-logout-btn">
             <i class="fas fa-fw fa-sign-out-alt"></i><span>Cerrar Sesión</span>
         </a>
@@ -489,10 +541,30 @@ echo isLoggedIn()
             </button>
         </div>
         <div class="topbar-right">
+            <?php // Selector de organización (demo): solo en la vista Paviotti — Moderna unifica y no muestra selectores. ?>
+            <?php if (function_exists('org_simulator_available') && org_simulator_available() && !$_orgIsModerna): ?>
+            <form method="post" action="<?php echo URLROOT; ?>/registroHoras/setOrg" class="topbar-company-form d-none d-md-flex align-items-center me-2" title="Simulador de organización (fase maqueta): define qué vista de la Suite P&amp;M se muestra">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                <label class="text-muted small me-1 mb-0" for="topbarOrgSelect">Organización</label>
+                <select name="org_group" id="topbarOrgSelect" class="form-select form-select-sm" style="max-width:170px" onchange="this.form.submit()">
+                    <option value="paviotti" <?php echo org_current_group() === 'paviotti' ? 'selected' : ''; ?>>Paviotti/Ecofarma</option>
+                    <option value="moderna" <?php echo org_current_group() === 'moderna' ? 'selected' : ''; ?>>Moderna</option>
+                </select>
+                <span class="badge bg-secondary ms-1" title="Se reemplaza por users.employee_group al integrar">demo</span>
+            </form>
+            <?php endif; ?>
             <?php if (hasRole('admin')):
                 $_companySwitcher = (new Company())->getAllCompanies();
+                // Suite P&M: la empresa Moderna no aparece en el selector de Paviotti.
+                if (function_exists('org_moderna_company_id') && org_moderna_company_id()) {
+                    $_companySwitcher = array_values(array_filter($_companySwitcher, function ($c) {
+                        return (int)$c->id !== org_moderna_company_id();
+                    }));
+                }
                 $_activeCompanyId = (int)($_SESSION['user_company_id'] ?? 0);
             ?>
+            <?php if (!$_orgIsModerna): // Moderna unifica: sin selector de empresa ?>
             <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form d-none d-md-flex align-items-center me-2">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
@@ -508,6 +580,7 @@ echo isLoggedIn()
                     <?php endforeach; ?>
                 </select>
             </form>
+            <?php endif; ?>
             <div class="dropdown topbar-notify">
                 <button type="button"
                         class="topbar-notify-btn dropdown-toggle<?php echo $_adminNotifyTotalCount > 0 ? ' has-alerts' : ''; ?>"
