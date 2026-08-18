@@ -15,7 +15,9 @@ class Database {
     private $error;
 
     public function __construct(){
-        $dsn = 'mysql:host=' . $this->host . ';dbname=' . $this->dbname . ';charset=utf8mb4';
+        // DB_PORT es opcional (definible en config.local.php); default 3306.
+        $port = defined('DB_PORT') ? (string)DB_PORT : '3306';
+        $dsn = 'mysql:host=' . $this->host . ';port=' . $port . ';dbname=' . $this->dbname . ';charset=utf8mb4';
         $options = array(
             PDO::ATTR_PERSISTENT => true,
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
