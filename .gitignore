@@ -49,3 +49,7 @@ desktop.ini
 # === Archivos temporales de Google Drive ===
 .tmp.driveupload/
 .tmp.drivedownload/
+
+# Entorno local de integración (no versionar)
+hoursapp-moderna/
+paviotti_lanaturaleza*.sql

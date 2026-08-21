@@ -31,6 +31,12 @@ function employee_portal_can($feature) {
         && !access_portal_feature_allowed(access_feature_key_for_portal($feature), true)) {
         return false;
     }
+    // Suite P&M: la organización Moderna no usa recibos de sueldo
+    // (oculta menú, bloquea rutas via require_employee_portal_feature
+    // y filtra las notificaciones de tipo pay_stub).
+    if ($feature === 'pay_stubs' && function_exists('org_hides_pay_stubs') && org_hides_pay_stubs()) {
+        return false;
+    }
     if ($feature === 'overtime' && function_exists('overtime_empleado_scope_allowed')) {
         return overtime_empleado_scope_allowed();
     }

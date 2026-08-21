@@ -7,7 +7,14 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
 
 <?php if(isLoggedIn()): ?>
     <footer class="app-footer">
-        <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo function_exists('company_brand_display_name') ? htmlspecialchars(company_brand_display_name()) : SITENAME; ?> &mdash; Todos los derechos reservados.</p>
+        <?php
+        // Suite P&M: en la vista Moderna el footer lleva la marca completa.
+        $_footerBrand = function_exists('company_brand_display_name') ? company_brand_display_name() : SITENAME;
+        if (function_exists('org_is_moderna') && org_is_moderna()) {
+            $_footerBrand = 'Red Farmacias Moderna';
+        }
+        ?>
+        <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars($_footerBrand); ?> &mdash; Todos los derechos reservados.</p>
     </footer>
 
 <?php if(hasRole('empleado')): ?>
