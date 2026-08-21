@@ -5295,3 +5295,33 @@ body.org-moderna .db-dark-head {
 @media (prefers-reduced-motion: reduce) {
     .rh-cal-day { transition: none; }
 }
+
+/* ── RhCalPicker: calendario de selección (duplicación/borrado masivo) ── */
+.rh-pk-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: .45rem; }
+.rh-cal-day.pk-off { background: #f4f6f8; border-color: #e6ecf1; color: #b0bec9; }
+.rh-cal-day.pk-has { cursor: pointer; position: relative; }
+.rh-cal-day.pk-has .pk-dot { position: absolute; top: .3rem; right: .35rem; width: 7px; height: 7px; border-radius: 50%; background: var(--clr-primary); }
+.rh-cal-day .pk-star { position: absolute; bottom: .15rem; right: .3rem; font-size: .6rem; color: var(--clr-danger); }
+.rh-cal-day.pk-hol { background: #fde2e2; border-color: rgba(239, 68, 68, .4); }
+.rh-cal-day.pk-sel-del { background: var(--clr-danger); border-color: var(--clr-danger); color: #fff; }
+.rh-cal-day.pk-sel-del .pk-dot { background: #fff; }
+.rh-cal-day.pk-sel-src { background: var(--clr-primary); border-color: var(--clr-primary); color: #fff; }
+.rh-cal-day.pk-sel-src .pk-dot { background: #fff; }
+.rh-cal-day.pk-sel-dest { background: #198754; border-color: #198754; color: #fff; }
+.rh-cal-day.pk-sel-dest .pk-dot { background: #fff; }
+.rh-cal-day.pk-hover { outline: 2px dashed rgba(var(--clr-primary-rgb), .55); outline-offset: -2px; }
+.rh-cal-day.pk-sel-del .rh-cal-hrs, .rh-cal-day.pk-sel-src .rh-cal-hrs, .rh-cal-day.pk-sel-dest .rh-cal-hrs { color: #fff; opacity: .9; }
+
+/* ── RhTooltip: tooltip flotante de los calendarios del Registro de Horas ── */
+.rh-tip {
+    position: fixed; z-index: 1080; pointer-events: none;
+    background: var(--clr-admin-text, #17303f); color: #fff;
+    border-radius: .55rem; padding: .5rem .7rem;
+    font-size: .78rem; line-height: 1.45; max-width: 280px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+}
+.rh-tip .rh-tip-fecha { font-weight: 700; margin-bottom: .25rem; border-bottom: 1px solid rgba(255,255,255,.25); padding-bottom: .2rem; }
+.rh-tip .rh-tip-suc { font-weight: 600; margin-top: .3rem; }
+.rh-tip .rh-tip-rango { font-variant-numeric: tabular-nums; opacity: .95; }
+.rh-tip .rh-tip-feriado { color: #ffb3b3; font-weight: 600; margin-top: .25rem; }
+.rh-tip .rh-tip-hint { margin-top: .35rem; font-size: .7rem; opacity: .75; }

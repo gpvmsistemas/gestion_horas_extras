@@ -48,6 +48,22 @@ $monthLabel = $monthValue !== null
     ? $mesesEs[(int)substr($monthValue, 5, 2)] . ' ' . (int)substr($monthValue, 0, 4)
     : date('d/m/Y', strtotime($data['rangeStart'] ?? 'today')) . ' – ' . date('d/m/Y', strtotime($data['rangeEnd'] ?? 'today'));
 $hasPlaceFilter = ($filters['city'] !== '' || $filters['branch'] !== '');
+// Tooltip rico del calendario (port de showTooltip de view_hours.js):
+// fecha → sucursales → rangos (+extras) + feriado; estados por día bloqueado.
+$dayTips = [];
+foreach ($data['records'] as $r) {
+    $dayTips[$r->date]['branches'][$r->branch_name][] = $r->start_time . ' – ' . $r->end_time
+        . ($r->extra_hours > 0 ? ' (+' . rh_fmt_horas($r->extra_hours) . ' extra)' : '');
+    if ($r->is_holiday && !empty($r->holiday_name ?? '')) {
+        $dayTips[$r->date]['holiday'] = $r->holiday_name;
+    }
+}
+$statusTips = [];
+if ($monthValue !== null) {
+    foreach ($statusDays as $dNum => $label) {
+        $statusTips[sprintf('%s-%02d', $monthValue, $dNum)] = $label;
+    }
+}
 ?>
 
 <section class="admin-surface">
@@ -158,10 +174,9 @@ $hasPlaceFilter = ($filters['city'] !== '' || $filters['branch'] !== '');
                     <?php endfor; ?>
                     <?php for ($d = 1; $d <= $daysInMonth; $d++):
                         $classes = [];
-                        $statusTitle = '';
+                        $cellIso = sprintf('%s-%02d', $monthValue, $d);
                         if (isset($statusDays[$d])) {
                             $classes[] = 'is-status';
-                            $statusTitle = $statusDays[$d] . ' — este día no se pueden registrar horas';
                         } elseif (isset($holidayDays[$d])) {
                             $classes[] = 'is-holiday';
                         } elseif (isset($workedDays[$d])) {
@@ -173,7 +188,8 @@ $hasPlaceFilter = ($filters['city'] !== '' || $filters['branch'] !== '');
                             if ((int)date('j', strtotime($r->date)) === $d) $dayHours += $r->hours;
                         }
                     ?>
-                    <div class="rh-cal-day <?php echo implode(' ', $classes); ?>" <?php echo $statusTitle !== '' ? 'title="' . htmlspecialchars($statusTitle) . '"' : ''; ?>>
+                    <div class="rh-cal-day <?php echo implode(' ', $classes); ?>" data-cal-date="<?php echo $cellIso; ?>"
+                         <?php echo isset($statusDays[$d]) ? 'aria-label="' . htmlspecialchars($statusDays[$d] . ' — este día no se pueden registrar horas') . '"' : ''; ?>>
                         <?php echo $d; ?>
                         <?php if (isset($statusDays[$d])): ?><span class="rh-cal-hrs"><?php echo htmlspecialchars($statusDays[$d]); ?></span>
                         <?php elseif ($dayHours > 0): ?><span class="rh-cal-hrs"><?php echo rh_fmt_horas($dayHours); ?> hs</span><?php endif; ?>
@@ -237,7 +253,7 @@ $hasPlaceFilter = ($filters['city'] !== '' || $filters['branch'] !== '');
                             $isHoliday = false; $dayTotal = 0; $dayExtras = 0;
                             foreach ($dayRecords as $r) { if ($r->is_holiday) $isHoliday = true; $dayTotal += $r->hours; $dayExtras += $r->extra_hours; }
                         ?>
-                        <div class="rh-day-card <?php echo $isHoliday ? 'is-holiday' : ''; ?>">
+                        <div class="rh-day-card <?php echo $isHoliday ? 'is-holiday' : ''; ?>" data-date="<?php echo htmlspecialchars($date); ?>">
                             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
                                 <div class="fw-semibold">
                                     <?php echo date('d/m/Y', strtotime($date)); ?> — <?php echo $weekdaysEs[$dowN]; ?>
@@ -482,8 +498,65 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 <?php endif; ?>
 
+<script src="<?php echo URLROOT; ?>/js/rh-tooltip.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // ── Tooltip rico del calendario + click para ir al registro del día ──
+    // (port de showTooltip/scrollToDateRecord de view_hours.js de hoursapp)
+    var DAY_TIPS = <?php echo json_encode($dayTips, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    var STATUS_TIPS = <?php echo json_encode($statusTips, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    var DIAS_ES = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    function dowIso(iso) {
+        var p = iso.split('-').map(Number);
+        return ((new Date(p[0], p[1] - 1, p[2]).getDay() + 6) % 7) + 1;
+    }
+    var calBox = document.querySelector('.rh-cal');
+    if (calBox && window.RhTooltip) {
+        var esc = RhTooltip.esc;
+        function tipHtml(iso) {
+            var head = '<div class="rh-tip-fecha">' + DIAS_ES[dowIso(iso)] + ' ' + iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) + '</div>';
+            if (STATUS_TIPS[iso]) {
+                return head + '<div class="rh-tip-suc">Estado: ' + esc(STATUS_TIPS[iso]) + '</div>'
+                    + '<div class="rh-tip-hint">Este día no se pueden registrar horas</div>';
+            }
+            var tip = DAY_TIPS[iso];
+            if (!tip) return null;
+            var html = head;
+            Object.keys(tip.branches).forEach(function (b) {
+                html += '<div class="rh-tip-suc"><i class="fas fa-map-marker-alt me-1"></i>' + esc(b) + '</div>';
+                tip.branches[b].forEach(function (r) {
+                    html += '<div class="rh-tip-rango"><i class="far fa-clock me-1"></i>' + esc(r) + '</div>';
+                });
+            });
+            if (tip.holiday) {
+                html += '<div class="rh-tip-feriado"><i class="fas fa-star me-1"></i>Feriado: ' + esc(tip.holiday) + '</div>';
+            }
+            html += '<div class="rh-tip-hint">Click para ver el registro</div>';
+            return html;
+        }
+        calBox.addEventListener('mouseover', function (ev) {
+            var c = ev.target.closest && ev.target.closest('[data-cal-date]');
+            if (!c) return;
+            var html = tipHtml(c.dataset.calDate);
+            if (html) {
+                RhTooltip.show(c, html);
+                if (DAY_TIPS[c.dataset.calDate]) c.style.cursor = 'pointer';
+            }
+        });
+        calBox.addEventListener('mouseout', function () { RhTooltip.hide(); });
+        calBox.addEventListener('click', function (ev) {
+            var c = ev.target.closest && ev.target.closest('[data-cal-date]');
+            if (!c || !DAY_TIPS[c.dataset.calDate]) return;
+            RhTooltip.hide();
+            var card = document.querySelector('.rh-day-card[data-date="' + c.dataset.calDate + '"]');
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.style.outline = '2px solid var(--clr-warning)';
+                setTimeout(function () { card.style.outline = ''; }, 1600);
+            }
+        });
+    }
+
     // Selects encadenados ciudad → sucursal del filtro (también en maqueta).
     var citySel = document.getElementById('rhFilterCity');
     var branchSel = document.getElementById('rhFilterBranch');

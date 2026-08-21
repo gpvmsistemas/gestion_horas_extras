@@ -4,6 +4,7 @@
 // Espera: $_rhActive (clave de $_rhTabs) y $data['org'/'orgLabel'].
 $_rhTabs = [
     'vistaGeneral'  => ['fa-table',         'Vista general'],
+    'porSucursal'   => ['fa-store',         'Por sucursal'],
     'carga'         => ['fa-plus-circle',   'Carga'],
     'horarios'      => ['fa-calendar-week', 'Por empleado'],
     'duplicar'      => ['fa-copy',          'Duplicación'],

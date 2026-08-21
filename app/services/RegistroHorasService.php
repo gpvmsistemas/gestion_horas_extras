@@ -519,6 +519,61 @@ class RegistroHorasService {
     }
 
     /**
+     * Horario de atención de cada sucursal (name => texto), para la vista por
+     * sucursal — port del BRANCH_SCHEDULES hardcodeado de hoursapp, ahora en
+     * company_branches.schedule_text (migration_horario_atencion_sucursal.sql).
+     */
+    public function branchSchedules() {
+        static $map = null;
+        if ($map !== null) {
+            return $map;
+        }
+        $map = [];
+        try {
+            $this->db->query("SHOW COLUMNS FROM company_branches LIKE 'schedule_text'");
+            if (!$this->db->single()) {
+                return $map;
+            }
+            $this->db->query("SELECT name, schedule_text FROM company_branches WHERE is_active = 1 AND schedule_text IS NOT NULL AND schedule_text <> ''");
+            foreach ($this->db->resultSet() as $r) {
+                $map[$r->name] = $r->schedule_text;
+            }
+        } catch (Throwable $e) {
+            $map = [];
+        }
+        return $map;
+    }
+
+    /**
+     * Fechas con horas registradas en una sucursal (mapa fecha => cantidad de
+     * bloques), acotado al grupo organizacional — alimenta los calendarios de
+     * selección de la duplicación y el borrado masivo (espejo de
+     * get_hours_by_branch de hoursapp, pero con rango y multi-tenant).
+     */
+    public function datesWithHours(array $companyIds, $branchName, $startDate, $endDate) {
+        $companyIds = array_values(array_filter(array_map('intval', $companyIds)));
+        if (empty($companyIds) || (string)$branchName === '') {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($companyIds), '?'));
+        $this->db->query(
+            "SELECT es.schedule_date, COUNT(*) AS n
+             FROM employee_schedules es
+             JOIN users u ON u.id = es.user_id
+             WHERE u.company_id IN ($ph) AND u.role = 'empleado'
+               AND es.branch_name = ?
+               AND es.schedule_date BETWEEN ? AND ?
+               AND es.type IN ('shift','custom','overtime')
+             GROUP BY es.schedule_date"
+        );
+        $map = [];
+        foreach ($this->db->resultSet(array_merge($companyIds, [$branchName, $startDate, $endDate])) as $r) {
+            $map[$r->schedule_date] = (int)$r->n;
+        }
+        return $map;
+    }
+
+    /**
      * Bloques "borde" de turnos nocturnos divididos, para el borrado masivo:
      * $edge='tail' busca colas 00:00–X, $edge='head' busca cabezas X–23:59,
      * en las fechas dadas para esos empleados (y sucursal si se filtra).

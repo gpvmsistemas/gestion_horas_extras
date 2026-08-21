@@ -59,6 +59,242 @@ class RegistroHorasController {
         $this->render('registro_horas/vista_general', $data);
     }
 
+    /**
+     * Vista general POR SUCURSAL — port de branch_hours / branch_hours_week /
+     * branch_hours_weekend de hoursapp (report_routes.py). Agrupa por la
+     * sucursal donde se REGISTRARON las horas: el empleado aparece en cada
+     * sucursal donde trabajó en el período, venga de la que venga. Modos:
+     * completa (Lu–Do), semana (Lu–Vi), finde (columnas por fecha sáb/dom).
+     * Con rango > 7 días, las columnas por día de semana agrupan varias fechas
+     * (mismo comportamiento que el canónico; los chips muestran la fecha).
+     */
+    public function porSucursal(){
+        $data = $this->orgData();
+        $modo = in_array((string)($_GET['modo'] ?? ''), ['completa', 'semana', 'finde'], true) ? $_GET['modo'] : 'completa';
+        $from = (string)($_GET['from'] ?? '');
+        $to = (string)($_GET['to'] ?? '');
+        if (!$this->validDate($from) || !$this->validDate($to) || $from > $to
+            || count($this->dateRange($from, $to)) > 93) {
+            $from = date('Y-m-d', strtotime('monday this week'));
+            $to = date('Y-m-d', strtotime($from . ' +6 days'));
+        }
+        $city = (string)($_GET['city'] ?? '');
+        if ($city !== '' && !isset($data['branchesByCity'][$city])) {
+            $city = '';
+        }
+        $branch = (string)($_GET['branch'] ?? '');
+        if ($branch !== '' && !in_array($branch, $this->orgBranchCatalog(), true)) {
+            $branch = '';
+        }
+        $rangeDates = $this->dateRange($from, $to);
+        $multiWeek = count($rangeDates) > 7;
+
+        // Columnas según el modo: día de semana (agrupa fechas) o fecha suelta.
+        $weekdaysEs = [1 => 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+        $columns = [];
+        if ($modo === 'finde') {
+            foreach ($rangeDates as $d) {
+                $n = (int)date('N', strtotime($d));
+                if ($n >= 6) {
+                    $columns[$d] = ['label' => ($n === 6 ? 'Sábado' : 'Domingo'), 'sub' => date('d/m', strtotime($d)), 'dates' => [$d]];
+                }
+            }
+        } else {
+            $last = $modo === 'semana' ? 5 : 7;
+            for ($k = 1; $k <= $last; $k++) {
+                $columns[$k] = ['label' => $weekdaysEs[$k], 'sub' => '', 'dates' => []];
+            }
+            foreach ($rangeDates as $d) {
+                $n = (int)date('N', strtotime($d));
+                if (isset($columns[$n])) {
+                    $columns[$n]['dates'][] = $d;
+                    if (!$multiWeek) {
+                        $columns[$n]['sub'] = date('d/m', strtotime($d));
+                    }
+                }
+            }
+        }
+
+        $data['ps'] = [
+            'modo' => $modo, 'from' => $from, 'to' => $to,
+            'city' => $city, 'branch' => $branch,
+            'columns' => $columns, 'multiWeek' => $multiWeek,
+        ];
+
+        if ($data['realMode']) {
+            $data['psSections'] = $this->buildBranchSections($data, $rangeDates, $columns, $city, $branch);
+            $data['psSchedules'] = $this->service->branchSchedules();
+        } else {
+            $data['psSections'] = $this->sampleBranchSections($data, $columns);
+            $data['psSchedules'] = [];
+        }
+        $this->render('registro_horas/por_sucursal', $data);
+    }
+
+    /**
+     * Secciones por sucursal: branch => filas de empleados con celdas por
+     * columna, ausencias por estado y feriados por columna de ESA sucursal.
+     */
+    private function buildBranchSections($data, array $rangeDates, array $columns, $city, $branchFilter){
+        $employees = $data['employees'];
+        $ids = array_column($employees, 'id');
+        $from = $rangeDates[0];
+        $to = end($rangeDates);
+        $blocksMap = $this->service->getBlocksForUsers($ids, $from, $to);
+        $statusMap = $this->service->statusPeriodsForUsers($ids, $from, $to);
+        $holidayCtx = $this->service->buildHolidayContext($this->orgCompanyIds(), $from, $to);
+        $cityBranches = $city !== '' ? ($data['branchesByCity'][$city] ?? []) : null;
+
+        // Columna de cada fecha según el modo elegido.
+        $colOfDate = [];
+        foreach ($columns as $key => $col) {
+            foreach ($col['dates'] as $d) {
+                $colOfDate[$d] = $key;
+            }
+        }
+
+        $sections = [];
+        foreach ($employees as $emp) {
+            $empCompanyId = (int)($emp->company_id ?? 0) ?: (int)adminCompanyId();
+            $blockHolidayFn = function ($b) use ($holidayCtx, $empCompanyId) {
+                return $this->service->blockHolidayName($holidayCtx, $b->schedule_date ?? '', $empCompanyId, $b->branch_id ?? null, $b->branch_name ?? null) !== null;
+            };
+            // Días bloqueados por estado (períodos + bloques vacation/leave).
+            $blockedDays = [];
+            foreach ($statusMap[$emp->id] ?? [] as $p) {
+                foreach ($rangeDates as $d) {
+                    if ($d >= $p->start_date && $d <= $p->end_date) {
+                        $blockedDays[$d] = ['label' => RegistroHorasService::statusLabel($p->status), 'until' => $p->end_date];
+                    }
+                }
+            }
+            $hasWork = false;
+            foreach ($blocksMap[$emp->id] ?? [] as $date => $blocks) {
+                foreach ($blocks as $b) {
+                    if ($b->type === 'vacation' || $b->type === 'leave') {
+                        if (!isset($blockedDays[$date])) {
+                            $blockedDays[$date] = ['label' => $b->type === 'vacation' ? 'Vacaciones' : 'Licencia', 'until' => $date];
+                        }
+                        continue;
+                    }
+                }
+                $work = array_values(array_filter($blocks, function ($b) {
+                    return in_array($b->type, RegistroHorasService::WORK_TYPES, true) && $b->start_time && $b->end_time;
+                }));
+                if (empty($work) || !isset($colOfDate[$date])) {
+                    continue;
+                }
+                $day = $this->service->computeDay($data['org'], $date, $work, false, $blockHolidayFn);
+                foreach ($work as $b) {
+                    $bBranch = $b->branch_name ?: 'Sin sucursal';
+                    if ($branchFilter !== '' && $bBranch !== $branchFilter) {
+                        continue;
+                    }
+                    if ($cityBranches !== null && !in_array($bBranch, $cityBranches, true)) {
+                        continue;
+                    }
+                    $hasWork = true;
+                    if (!isset($sections[$bBranch][$emp->id])) {
+                        $sections[$bBranch][$emp->id] = [
+                            'employee' => $emp, 'absent' => null,
+                            'cells' => [], 'minStart' => '99:99',
+                        ];
+                    }
+                    $start5 = substr($b->start_time, 0, 5);
+                    $sections[$bBranch][$emp->id]['cells'][$colOfDate[$date]][] = [
+                        'date'  => $date,
+                        'start' => $start5,
+                        'end'   => substr($b->end_time, 0, 5),
+                        'extra' => $day['block_extra'][(int)($b->id ?? 0)] ?? 0,
+                    ];
+                    if ($start5 < $sections[$bBranch][$emp->id]['minStart']) {
+                        $sections[$bBranch][$emp->id]['minStart'] = $start5;
+                    }
+                }
+            }
+            // Sin horas en el período pero con estado que lo solapa: fila gris
+            // bajo su sucursal "de casa" (igual que el canónico).
+            if (!$hasWork && !empty($blockedDays)) {
+                $home = $emp->branch ?: 'Sin sucursal';
+                if ($branchFilter !== '' && $home !== $branchFilter) {
+                    continue;
+                }
+                if ($cityBranches !== null && !in_array($home, $cityBranches, true)) {
+                    continue;
+                }
+                $first = reset($blockedDays);
+                $sections[$home][$emp->id] = [
+                    'employee' => $emp,
+                    'absent'   => $first['label'],
+                    'absent_until' => max(array_column($blockedDays, 'until')),
+                    'cells'    => [], 'minStart' => '99:99',
+                ];
+            }
+            // Celdas vacías con día bloqueado puntual: la vista lo marca.
+            if ($hasWork && !empty($blockedDays)) {
+                foreach ($sections as $bName => $rows) {
+                    if (isset($rows[$emp->id]) && $rows[$emp->id]['absent'] === null) {
+                        $sections[$bName][$emp->id]['blocked_days'] = $blockedDays;
+                    }
+                }
+            }
+        }
+
+        // Orden: encargados primero, después por hora de inicio más temprana
+        // (los ausentes al final); secciones alfabéticas.
+        ksort($sections);
+        foreach ($sections as $bName => $rows) {
+            uasort($rows, function ($a, $b) {
+                $ma = !empty($a['employee']->manager);
+                $mb = !empty($b['employee']->manager);
+                if ($ma !== $mb) {
+                    return $ma ? -1 : 1;
+                }
+                return strcmp($a['minStart'], $b['minStart']);
+            });
+            $sections[$bName] = $rows;
+        }
+
+        // Feriados por sucursal y columna (regla de la suite: aplican a la
+        // sucursal, no a la ciudad "de casa" del empleado como el canónico).
+        $holCols = [];
+        foreach ($sections as $bName => $rows) {
+            foreach ($columns as $key => $col) {
+                foreach ($col['dates'] as $d) {
+                    $n = $this->service->blockHolidayName($holidayCtx, $d, (int)adminCompanyId(), null, $bName);
+                    if ($n !== null) {
+                        $holCols[$bName][$key] = $n . ' (' . date('d/m', strtotime($d)) . ')';
+                        break;
+                    }
+                }
+            }
+        }
+        return ['rows' => $sections, 'holidays' => $holCols];
+    }
+
+    /** Datos de ejemplo de la vista por sucursal (modo maqueta). */
+    private function sampleBranchSections($data, array $columns){
+        $sections = [];
+        $keys = array_keys($columns);
+        foreach (array_slice($data['employees'], 0, 6) as $i => $emp) {
+            $row = ['employee' => $emp, 'absent' => null, 'cells' => [], 'minStart' => '08:00'];
+            if ($emp->state !== 'Activo') {
+                $row['absent'] = $emp->state;
+                $row['absent_until'] = date('Y-m-d', strtotime('+10 days'));
+            } else {
+                foreach ($keys as $j => $key) {
+                    if ($j >= 5) {
+                        break;
+                    }
+                    $row['cells'][$key][] = ['date' => date('Y-m-d'), 'start' => ($i % 2) ? '14:00' : '08:00', 'end' => ($i % 2) ? '22:00' : '16:00', 'extra' => ($j === 2 && $i % 3 === 0) ? 1 : 0];
+                }
+            }
+            $sections[$emp->branch][$emp->id] = $row;
+        }
+        ksort($sections);
+        return ['rows' => $sections, 'holidays' => []];
+    }
+
     /** Carga de horarios (equivale a record_hours de hoursapp). */
     public function carga(){
         $data = $this->orgData();
@@ -477,23 +713,36 @@ class RegistroHorasController {
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && $data['realMode']) {
             csrf_verify();
             $action = postString('action');
-            $req = [
-                'branch_name' => postString('branch_name'),
-                'start_date'  => postString('start_date'),
-                'end_date'    => postString('end_date'),
-            ];
-            $dateOk = $this->validDate($req['start_date']) && $this->validDate($req['end_date'])
-                && $req['start_date'] <= $req['end_date']
-                && count($this->dateRange($req['start_date'], $req['end_date'])) <= 93;
+            $req = ['branch_name' => postString('branch_name')];
+            // Fechas EXPLÍCITAS del calendario de selección (port del canónico:
+            // fechas sueltas, no necesariamente contiguas). Fallback sin JS:
+            // rango desde/hasta clásico.
+            $rawDates = array_map('strval', (array)($_POST['dates'] ?? []));
+            if (!empty($rawDates)) {
+                $dates = array_values(array_unique(array_filter($rawDates, [$this, 'validDate'])));
+                sort($dates);
+                // Valores basura no se silencian: se rechaza el envío entero.
+                $datesOk = count($dates) === count(array_unique($rawDates))
+                    && count($dates) >= 1 && count($dates) <= 93;
+            } else {
+                $start = postString('start_date');
+                $end = postString('end_date');
+                $datesOk = $this->validDate($start) && $this->validDate($end)
+                    && $start <= $end && count($this->dateRange($start, $end)) <= 93;
+                $dates = $datesOk ? $this->dateRange($start, $end) : [];
+            }
             $branchOk = $req['branch_name'] !== ''
                 && in_array($req['branch_name'], array_merge(...array_values($data['branchesByCity'])), true);
-            if (!$dateOk || !$branchOk) {
-                $_SESSION['flash_error'] = 'Revisá sucursal y fechas: rango válido de hasta 93 días.';
+            if (!$datesOk || !$branchOk) {
+                $_SESSION['flash_error'] = 'Revisá sucursal y fechas: elegí entre 1 y 93 días.';
                 redirect('registroHoras/borradoMasivo');
             }
-            $dates = $this->dateRange($req['start_date'], $req['end_date']);
+            $req['dates'] = $dates;
 
-            $blocks = $this->service->findWorkBlocksByCompanies($this->orgCompanyIds(), $req['start_date'], $req['end_date'], $req['branch_name']);
+            $blocks = $this->service->findWorkBlocksByCompanies($this->orgCompanyIds(), $dates[0], end($dates), $req['branch_name']);
+            // Con fechas sueltas, el rango min–max incluye días no elegidos.
+            $dateSet = array_flip($dates);
+            $blocks = array_values(array_filter($blocks, fn($b) => isset($dateSet[$b->schedule_date])));
             $blocks = $this->restrictRowsToStaffScope($blocks, 'user_id');
             if (empty($blocks)) {
                 $_SESSION['flash_error'] = 'No hay registros de horas en las fechas seleccionadas para esa sucursal.';
@@ -656,8 +905,10 @@ class RegistroHorasController {
                     null,
                     [
                         'branch'    => $req['branch_name'],
-                        'desde'     => $req['start_date'],
-                        'hasta'     => $req['end_date'],
+                        'desde'     => $dates[0],
+                        'hasta'     => end($dates),
+                        'fechas_n'  => count($dates),
+                        'fechas'    => count($dates) <= 31 ? $dates : null,
                         'borrados'  => $deleted,
                         'colas'     => $tailsDeleted,
                         'excluidos' => $skipped,
@@ -671,7 +922,8 @@ class RegistroHorasController {
             // la auditoría nunca frena la operación ya ejecutada
         }
 
-        $msg = "Borrado masivo completado: {$deleted} bloque(s) eliminados de " . count($toDelete) . " colaborador(es) en {$req['branch_name']}.";
+        $msg = "Borrado masivo completado: {$deleted} bloque(s) eliminados de " . count($toDelete)
+            . " colaborador(es) en {$req['branch_name']} (" . count($includeDates) . " fecha(s)).";
         if ($skipped > 0) {
             $msg .= " Excluidos: {$skipped} bloque(s).";
         }
@@ -808,6 +1060,51 @@ class RegistroHorasController {
         exit;
     }
 
+    /**
+     * GET JSON: días con horas registradas en una sucursal + feriados que le
+     * aplican — pinta los calendarios de selección de duplicación masiva y
+     * borrado masivo (espejo org-aware de get_hours_by_branch de hoursapp).
+     * Respuesta: { ok, dates: {iso: n}, holidays: {iso: nombre} }.
+     */
+    public function fechasConHoras(){
+        header('Content-Type: application/json; charset=utf-8');
+        $fail = function ($error) {
+            echo json_encode(['ok' => false, 'error' => $error]);
+            exit;
+        };
+        if ($this->service === null) {
+            $fail('schema');
+        }
+        $branch = (string)($_GET['branch'] ?? '');
+        if ($branch === '' || !in_array($branch, $this->orgBranchCatalog(), true)) {
+            $fail('sucursal');
+        }
+        $from = (string)($_GET['from'] ?? '');
+        $to = (string)($_GET['to'] ?? '');
+        if (!$this->validDate($from) || !$this->validDate($to)) {
+            // Ventana por defecto: 6 meses hacia atrás y 6 hacia adelante.
+            $from = date('Y-m-01', strtotime('-6 months'));
+            $to = date('Y-m-t', strtotime('+6 months'));
+        }
+        if ($from > $to || (strtotime($to) - strtotime($from)) > 550 * 86400) {
+            $fail('rango');
+        }
+        $companyIds = $this->orgCompanyIds();
+        $dates = $this->service->datesWithHours($companyIds, $branch, $from, $to);
+        $ctx = $this->service->buildHolidayContext($companyIds, $from, $to);
+        $holidays = [];
+        $cursor = $from;
+        while ($cursor <= $to) {
+            $n = $this->service->blockHolidayName($ctx, $cursor, (int)adminCompanyId(), null, $branch);
+            if ($n !== null) {
+                $holidays[$cursor] = $n;
+            }
+            $cursor = date('Y-m-d', strtotime($cursor . ' +1 day'));
+        }
+        echo json_encode(['ok' => true, 'dates' => $dates, 'holidays' => $holidays]);
+        exit;
+    }
+
     /** Vuelta a "Por empleado" conservando los filtros con los que se abrió el modal. */
     private function horariosRedirect($employeeId){
         $qs = ['employee_id' => (int)$employeeId];
@@ -827,7 +1124,7 @@ class RegistroHorasController {
         }
         csrf_verify();
         $back = postString('mock_back');
-        $allowed = ['vistaGeneral', 'carga', 'horarios', 'duplicar', 'cargaMasiva', 'borradoMasivo', 'estados'];
+        $allowed = ['vistaGeneral', 'porSucursal', 'carga', 'horarios', 'duplicar', 'cargaMasiva', 'borradoMasivo', 'estados'];
         if (!in_array($back, $allowed, true)) {
             $back = 'carga';
         }
@@ -1141,15 +1438,16 @@ class RegistroHorasController {
     private function buildMonthRecords($org, $blocksMap, array $holidayCtx, $empCompanyId){
         $records = [];
         $svc = $this->service;
-        $blockHolidayFn = function ($b) use ($svc, $holidayCtx, $empCompanyId) {
+        $blockHolidayNameFn = function ($b) use ($svc, $holidayCtx, $empCompanyId) {
             return $svc->blockHolidayName(
                 $holidayCtx,
                 $b->schedule_date ?? '',
                 $empCompanyId,
                 $b->branch_id ?? null,
                 $b->branch_name ?? null
-            ) !== null;
+            );
         };
+        $blockHolidayFn = fn($b) => $blockHolidayNameFn($b) !== null;
         foreach ($blocksMap as $date => $blocks) {
             $work = array_values(array_filter($blocks, function ($b) {
                 return in_array($b->type, RegistroHorasService::WORK_TYPES, true) && $b->start_time && $b->end_time;
@@ -1176,6 +1474,8 @@ class RegistroHorasController {
                     'extra_hours' => $day['block_extra'][(int)($b->id ?? 0)] ?? 0,
                     // el badge Feriado marca el BLOQUE cuya sucursal tiene el feriado
                     'is_holiday'  => $blockHolidayFn($b),
+                    // nombre del feriado para el tooltip del calendario
+                    'holiday_name' => (string)($blockHolidayNameFn($b) ?? ''),
                     // bloque nocturno heredado partido virtualmente en lectura:
                     // editar/borrar opera sobre el registro original completo,
                     // por eso el modal precarga los datos ORIGINALES (no la mitad)
