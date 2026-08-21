@@ -114,11 +114,21 @@ $_fmtEx = function ($v) { $s = rtrim(rtrim(number_format((float)$v, 2, '.', ''),
                     <tr class="<?php echo $_absent !== null ? 'table-secondary' : ''; ?>">
                         <?php if ($_first): $_first = false; ?>
                         <td rowspan="<?php echo $_n; ?>" class="align-top">
-                            <div class="fw-bold" style="color:var(--clr-primary-d);"><i class="fas fa-store me-1"></i><?php echo htmlspecialchars($_branch); ?></div>
+                            <div class="fw-bold" style="color:var(--clr-primary-d);">
+                                <i class="fas fa-store me-1"></i><?php echo htmlspecialchars($_branch); ?>
+                                <?php if ($data['realMode']): ?>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1 ps-edit-schedule"
+                                        title="Editar horario de atención de la sucursal"
+                                        data-branch="<?php echo htmlspecialchars($_branch); ?>"
+                                        data-text="<?php echo htmlspecialchars((string)($_schedules[$_branch] ?? '')); ?>"><i class="fas fa-pen"></i></button>
+                                <?php endif; ?>
+                            </div>
                             <?php if (!empty($_schedules[$_branch])): ?>
                             <div class="small text-muted mt-1 p-2 rounded" style="background:var(--page-bg);border-left:3px solid var(--clr-primary);">
                                 <i class="far fa-clock me-1"></i><?php echo htmlspecialchars($_schedules[$_branch]); ?>
                             </div>
+                            <?php elseif ($data['realMode']): ?>
+                            <div class="small text-muted mt-1 fst-italic">Sin horario de atención cargado.</div>
                             <?php endif; ?>
                         </td>
                         <?php endif; ?>
@@ -148,7 +158,10 @@ $_fmtEx = function ($v) { $s = rtrim(rtrim(number_format((float)$v, 2, '.', ''),
                                 <span class="badge bg-light text-dark border d-block mb-1" style="font-weight:600;">
                                     <?php if ($_ps['multiWeek'] && $_ps['modo'] !== 'finde'): ?><span class="text-muted fw-normal"><?php echo date('d/m', strtotime($_c['date'])); ?> · </span><?php endif; ?>
                                     <?php echo $_c['start'] . ' – ' . $_c['end']; ?>
-                                    <?php if ($_c['extra'] > 0): ?><span class="text-warning fw-bold">(+<?php echo $_fmtEx($_c['extra']); ?>)</span><?php endif; ?>
+                                    <?php if ($_c['extra'] > 0): $_rz = (string)($_c['extra_reason'] ?? ''); ?>
+                                    <span class="text-warning fw-bold"
+                                          <?php echo $_rz !== '' ? 'title="' . htmlspecialchars($_rz) . '" data-rh-variant="' . (($_c['extra_kind'] ?? '') === 'feriado' ? 'danger' : 'warning') . '"' : ''; ?>>(+<?php echo $_fmtEx($_c['extra']); ?>)</span>
+                                    <?php endif; ?>
                                 </span>
                                 <?php endforeach; ?>
                             <?php else:
@@ -176,8 +189,51 @@ $_fmtEx = function ($v) { $s = rtrim(rtrim(number_format((float)$v, 2, '.', ''),
 </section>
 <?php endif; ?>
 
+<?php if ($data['realMode']): ?>
+<!-- Modal: horario de atención de la sucursal -->
+<div class="modal fade" id="psScheduleModal" tabindex="-1" aria-labelledby="psScheduleTitle" aria-hidden="true">
+    <div class="modal-dialog">
+        <form class="modal-content" action="<?php echo URLROOT; ?>/registroHoras/guardarHorarioSucursal" method="post">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="branch_name" id="psSchedBranch">
+            <input type="hidden" name="back_modo" value="<?php echo htmlspecialchars($_ps['modo']); ?>">
+            <?php foreach (['city', 'branch', 'from', 'to'] as $_bf): ?>
+            <input type="hidden" name="back_<?php echo $_bf; ?>" value="<?php echo htmlspecialchars((string)$_ps[$_bf]); ?>">
+            <?php endforeach; ?>
+            <div class="modal-header">
+                <h5 class="modal-title" id="psScheduleTitle"><i class="far fa-clock me-2"></i>Horario de atención — <span id="psSchedName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label" for="psSchedText">Texto visible bajo la sucursal</label>
+                <input type="text" name="schedule_text" id="psSchedText" class="form-control" maxlength="255"
+                       placeholder="Lunes a Viernes: 08:00 a 21:30 | Sábado: 08:00 a 13:00">
+                <div class="form-text">Formato libre (máx. 255 caracteres). Dejalo vacío para quitar el horario.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>Guardar</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // Edición del horario de atención (lápiz junto al nombre de la sucursal).
+    var schedModalEl = document.getElementById('psScheduleModal');
+    var schedModal = (schedModalEl && window.bootstrap) ? new bootstrap.Modal(schedModalEl) : null;
+    document.querySelectorAll('.ps-edit-schedule').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (!schedModal) return;
+            document.getElementById('psSchedBranch').value = btn.dataset.branch;
+            document.getElementById('psSchedName').textContent = btn.dataset.branch;
+            document.getElementById('psSchedText').value = btn.dataset.text || '';
+            schedModal.show();
+        });
+    });
+
     var citySel = document.getElementById('psFilterCity');
     var branchSel = document.getElementById('psFilterBranch');
     function refresh() {

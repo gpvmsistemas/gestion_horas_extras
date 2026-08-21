@@ -81,6 +81,23 @@
             return '<i class="fas fa-' + name + ' rh-cal-ico" title="' + esc(title) + '"></i>';
         }
         function ddmm(iso) { return iso.slice(8, 10) + '/' + iso.slice(5, 7); }
+        // Origen de las extras estimadas de un día ("Feriado: 2 h · Umbral: 1 h").
+        function extrasOrigen(info) {
+            var parts = [];
+            if (info.exHol > 0) parts.push('Feriado' + (info.holidayName ? ' (' + info.holidayName + ')' : '') + ': ' + fmtH(info.exHol) + ' h');
+            if (info.exThr > 0) parts.push('Excedente del umbral diario de ' + (dow(info.date) >= 6 ? 5 : 8) + ' h: ' + fmtH(info.exThr) + ' h');
+            return 'Origen de las extras — ' + parts.join(' · ');
+        }
+        // Motivo de la extra de UN segmento del detalle del día.
+        function extraSegMotivo(seg, dateISO, holidayName) {
+            if (seg.isHoliday) {
+                return 'Feriado' + (holidayName ? ' — ' + holidayName : '') + ': todas las horas del bloque cuentan como extra.';
+            }
+            var thr = dow(dateISO) >= 6 ? 5 : 8;
+            var dias = thr === 5 ? 'sábados y domingos' : 'lunes a viernes';
+            return 'Excedente sobre el umbral diario de ' + thr + ' h (' + dias + ').'
+                + ((seg.start === '00:00' || seg.end === '23:59') ? ' Tramo ' + seg.start + '–' + seg.end + ' de un turno que cruza medianoche.' : '');
+        }
 
         // ── Lectura y validación del formulario ──
         function readInput() {
@@ -149,7 +166,7 @@
         function computeTotals(plan, serverData, scenario) {
             var byDate = {};
             var days = [];
-            var totH = 0, totEx = 0, nConf = 0, nBlock = 0, nHol = 0, nDays = 0, nOverlap = 0;
+            var totH = 0, totEx = 0, totExHol = 0, totExThr = 0, nConf = 0, nBlock = 0, nHol = 0, nDays = 0, nOverlap = 0;
             var blocked = (serverData && serverData.blocked) || {};
             var conflicts = (serverData && serverData.conflicts) || {};
             var hol1 = (serverData && serverData.holidays) || {};
@@ -195,16 +212,22 @@
                 if (isHol) nHol++;
                 nDays++;
                 var newMin = segs.filter(function (s) { return !s.existing; }).reduce(function (a, s) { return a + s.minutes; }, 0);
+                // Origen de las extras del día: feriado vs excedente del umbral.
+                var exHol = segs.reduce(function (a, s) { return a + (s.isHoliday ? (s.extraMin || 0) : 0); }, 0);
+                var exThr = r.extraMin - exHol;
                 totH += newMin;
                 totEx += r.extraMin;
+                totExHol += exHol;
+                totExThr += exThr;
                 var info = {
                     date: date, segs: segs, newMin: newMin, extraMin: r.extraMin,
+                    exHol: exHol, exThr: exThr,
                     conflict: conflictBlocks.length > 0, holiday: isHol,
                     holidayName: hol1[date] || hol2[date] || '', overlap: overlap
                 };
                 days.push(info); byDate[date] = info;
             });
-            return { days: days, byDate: byDate, totH: totH, totEx: totEx, nDays: nDays, nConf: nConf, nBlock: nBlock, nHol: nHol, nOverlap: nOverlap };
+            return { days: days, byDate: byDate, totH: totH, totEx: totEx, totExHol: totExHol, totExThr: totExThr, nDays: nDays, nConf: nConf, nBlock: nBlock, nHol: nHol, nOverlap: nOverlap };
         }
 
         // ── Render ──
@@ -228,7 +251,7 @@
                     aria = DIAS[dow(iso)] + ' ' + ddmm(iso) + ': ' + fmtH(info.newMin) + ' horas propuestas';
                     if (info.extraMin > 0) {
                         cls.push('has-extra');
-                        hrs += '<span class="rh-cal-ex">+' + fmtH(info.extraMin) + ' ex</span>';
+                        hrs += '<span class="rh-cal-ex" title="' + esc(extrasOrigen(info)) + '">+' + fmtH(info.extraMin) + ' ex</span>';
                         aria += ', ' + fmtH(info.extraMin) + ' extra estimadas';
                     }
                     if (info.holiday) { cls.push('is-holiday'); badges.push(icon('star', 'Feriado')); aria += ', feriado'; }
@@ -289,7 +312,10 @@
                         + s.start + ' – ' + s.end
                         + (s.branch ? ' · ' + esc(s.branch) : '')
                         + '</span><span class="small text-muted">' + fmtH(s.minutes) + ' hs'
-                        + (s.extraMin > 0 ? ' · <span class="text-warning fw-semibold">+' + fmtH(s.extraMin) + ' extra</span>' : '')
+                        + (s.extraMin > 0
+                            ? ' · <span class="text-warning fw-semibold" title="' + esc(extraSegMotivo(s, iso, info.holidayName)) + '"'
+                              + ' data-rh-variant="' + (s.isHoliday ? 'danger' : 'warning') + '">+' + fmtH(s.extraMin) + ' extra</span>'
+                            : '')
                         + '</span></div>';
                 });
                 html += '</div>';
@@ -312,7 +338,11 @@
             chips.push(chip('<i class="fas fa-calendar-plus text-primary"></i>Días a cargar: ' + state.nDays));
             chips.push(chip('<i class="fas fa-clock text-primary"></i>Horas del período: ' + fmtH(state.totH * 1) + ' hs'));
             if (ORG === 'moderna') {
-                chips.push(chip('<i class="fas fa-bolt text-warning"></i>Extras estimadas: ' + fmtH(state.totEx) + ' hs'));
+                var origen = [];
+                if (state.totExHol > 0) origen.push('Feriados: ' + fmtH(state.totExHol) + ' h');
+                if (state.totExThr > 0) origen.push('Excedente del umbral diario: ' + fmtH(state.totExThr) + ' h');
+                var tEx = origen.length ? ' title="Origen — ' + esc(origen.join(' · ')) + '" data-rh-variant="warning"' : '';
+                chips.push('<span class="rh-live-chip"' + tEx + '><i class="fas fa-bolt text-warning"></i>Extras estimadas: ' + fmtH(state.totEx) + ' hs</span>');
             } else {
                 chips.push(chip('<i class="fas fa-bolt text-muted"></i>Extras: clasificación 50/100 de la suite'));
             }

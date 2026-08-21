@@ -10,6 +10,7 @@ $byBranch = [];
 $workedDays = [];
 $holidayDays = [];
 $totHours = 0; $totExtras = 0;
+$totKinds = []; // origen de las extras del período (feriado/umbral/overtime)
 foreach ($data['records'] as $r) {
     $byBranch[$r->branch_name][$r->date][] = $r;
     $d = (int)date('j', strtotime($r->date));
@@ -17,7 +18,21 @@ foreach ($data['records'] as $r) {
     if ($r->is_holiday) $holidayDays[$d] = true;
     $totHours += $r->hours;
     $totExtras += $r->extra_hours;
+    if ($r->extra_hours > 0 && ($r->extra_kind ?? '') !== '') {
+        $totKinds[$r->extra_kind] = ($totKinds[$r->extra_kind] ?? 0) + $r->extra_hours;
+    }
 }
+// Desglose humano del origen de las extras ("Feriado: 8 h · Umbral: 1.5 h").
+$_kindLabels = ['feriado' => 'Feriado', 'umbral' => 'Excedente del umbral diario', 'overtime' => 'Bloques de horas extra'];
+$_extraBreakdown = function (array $kinds) use ($_kindLabels) {
+    $parts = [];
+    foreach ($_kindLabels as $k => $label) {
+        if (!empty($kinds[$k])) {
+            $parts[] = $label . ': ' . rh_fmt_horas($kinds[$k]) . ' h';
+        }
+    }
+    return implode(' · ', $parts);
+};
 $filters = $data['filters'] ?? ['month' => date('Y-m'), 'from' => '', 'to' => '', 'city' => '', 'branch' => '', 'range_mode' => false];
 // null es deliberado: rango libre que abarca más de un mes ⇒ sin calendario.
 $monthValue = array_key_exists('monthValue', $data) ? $data['monthValue'] : date('Y-m');
@@ -250,8 +265,15 @@ if ($monthValue !== null) {
                     <div class="d-flex flex-column gap-3">
                         <?php foreach ($dates as $date => $dayRecords):
                             $dowN = (int)date('N', strtotime($date));
-                            $isHoliday = false; $dayTotal = 0; $dayExtras = 0;
-                            foreach ($dayRecords as $r) { if ($r->is_holiday) $isHoliday = true; $dayTotal += $r->hours; $dayExtras += $r->extra_hours; }
+                            $isHoliday = false; $dayTotal = 0; $dayExtras = 0; $dayKinds = [];
+                            foreach ($dayRecords as $r) {
+                                if ($r->is_holiday) $isHoliday = true;
+                                $dayTotal += $r->hours;
+                                $dayExtras += $r->extra_hours;
+                                if ($r->extra_hours > 0 && ($r->extra_kind ?? '') !== '') {
+                                    $dayKinds[$r->extra_kind] = ($dayKinds[$r->extra_kind] ?? 0) + $r->extra_hours;
+                                }
+                            }
                         ?>
                         <div class="rh-day-card <?php echo $isHoliday ? 'is-holiday' : ''; ?>" data-date="<?php echo htmlspecialchars($date); ?>">
                             <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
@@ -262,7 +284,9 @@ if ($monthValue !== null) {
                                 </div>
                                 <div class="fw-bold">
                                     Total: <?php echo rh_fmt_horas($dayTotal); ?> hs
-                                    <?php if ($dayExtras > 0): ?><span class="text-warning ms-1">(+<?php echo rh_fmt_horas($dayExtras); ?> extra)</span><?php endif; ?>
+                                    <?php if ($dayExtras > 0): $_bd = $_extraBreakdown($dayKinds); ?>
+                                    <span class="text-warning ms-1" <?php echo $_bd !== '' ? 'title="Origen de las extras del día — ' . htmlspecialchars($_bd) . '" data-rh-variant="warning"' : ''; ?>>(+<?php echo rh_fmt_horas($dayExtras); ?> extra)</span>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                             <div class="d-flex flex-column gap-2">
@@ -273,7 +297,10 @@ if ($monthValue !== null) {
                                         <input type="checkbox" class="form-check-input rh-row-check me-2" value="<?php echo $rid; ?>" aria-label="Seleccionar bloque">
                                         <?php endif; ?>
                                         <i class="far fa-clock me-2 text-muted"></i><?php echo $r->start_time; ?> – <?php echo $r->end_time; ?>
-                                        <?php if ($r->extra_hours > 0): ?><span class="badge bg-warning text-dark ms-2">+<?php echo rh_fmt_horas($r->extra_hours); ?> extra</span><?php endif; ?>
+                                        <?php if ($r->extra_hours > 0): $_rz = (string)($r->extra_reason ?? ''); ?>
+                                        <span class="badge bg-warning text-dark ms-2"
+                                              <?php echo $_rz !== '' ? 'title="' . htmlspecialchars($_rz) . '" data-rh-variant="' . (($r->extra_kind ?? '') === 'feriado' ? 'danger' : 'warning') . '"' : ''; ?>>+<?php echo rh_fmt_horas($r->extra_hours); ?> extra</span>
+                                        <?php endif; ?>
                                         <?php if (!empty($r->nocturnal_legacy)): ?>
                                         <i class="fas fa-moon text-primary ms-2" title="Turno nocturno heredado sin dividir: editar o borrar afecta el turno completo (ambos días)."></i>
                                         <?php endif; ?>
@@ -320,7 +347,8 @@ if ($monthValue !== null) {
             Total de horas trabajadas del período: <?php echo rh_fmt_horas($totHours); ?> hs
         </div>
         <div class="text-muted">
-            Extras: <span class="fw-semibold text-warning"><?php echo rh_fmt_horas($totExtras); ?> hs</span>
+            <?php $_bdTot = $_extraBreakdown($totKinds); ?>
+            Extras: <span class="fw-semibold text-warning" <?php echo $_bdTot !== '' ? 'title="Origen de las extras del período — ' . htmlspecialchars($_bdTot) . '" data-rh-variant="warning"' : ''; ?>><?php echo rh_fmt_horas($totExtras); ?> hs</span>
             <?php echo $data['org'] === 'moderna' ? '(umbral diario 8/5 + feriados)' : '(clasificación 50/100 de la suite)'; ?>
             <?php if ($hasPlaceFilter): ?><span class="ms-1">· solo <?php echo htmlspecialchars($filters['branch'] !== '' ? $filters['branch'] : $filters['city']); ?></span><?php endif; ?>
         </div>

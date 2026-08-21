@@ -156,9 +156,10 @@ class RegistroHorasController {
         $sections = [];
         foreach ($employees as $emp) {
             $empCompanyId = (int)($emp->company_id ?? 0) ?: (int)adminCompanyId();
-            $blockHolidayFn = function ($b) use ($holidayCtx, $empCompanyId) {
-                return $this->service->blockHolidayName($holidayCtx, $b->schedule_date ?? '', $empCompanyId, $b->branch_id ?? null, $b->branch_name ?? null) !== null;
+            $blockHolidayNameFn = function ($b) use ($holidayCtx, $empCompanyId) {
+                return $this->service->blockHolidayName($holidayCtx, $b->schedule_date ?? '', $empCompanyId, $b->branch_id ?? null, $b->branch_name ?? null);
             };
+            $blockHolidayFn = fn($b) => $blockHolidayNameFn($b) !== null;
             // Días bloqueados por estado (períodos + bloques vacation/leave).
             $blockedDays = [];
             foreach ($statusMap[$emp->id] ?? [] as $p) {
@@ -201,11 +202,15 @@ class RegistroHorasController {
                         ];
                     }
                     $start5 = substr($b->start_time, 0, 5);
+                    $end5 = substr($b->end_time, 0, 5);
+                    $bDetail = $day['block_extra_detail'][(int)($b->id ?? 0)] ?? null;
                     $sections[$bBranch][$emp->id]['cells'][$colOfDate[$date]][] = [
                         'date'  => $date,
                         'start' => $start5,
-                        'end'   => substr($b->end_time, 0, 5),
+                        'end'   => $end5,
                         'extra' => $day['block_extra'][(int)($b->id ?? 0)] ?? 0,
+                        'extra_kind'   => $bDetail['tipo'] ?? '',
+                        'extra_reason' => $this->extraReasonText($bDetail, (string)($blockHolidayNameFn($b) ?? ''), $start5, $end5),
                     ];
                     if ($start5 < $sections[$bBranch][$emp->id]['minStart']) {
                         $sections[$bBranch][$emp->id]['minStart'] = $start5;
@@ -303,6 +308,48 @@ class RegistroHorasController {
         }
         ksort($sections);
         return ['rows' => $sections, 'holidays' => []];
+    }
+
+    /** POST: horario de atención de una sucursal (lápiz de la vista Por Sucursal). */
+    public function guardarHorarioSucursal(){
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            redirect('registroHoras/porSucursal');
+        }
+        csrf_verify();
+        $branch = postString('branch_name');
+        $text = trim(postString('schedule_text'));
+        if ($this->service === null || !in_array($branch, $this->orgBranchCatalog(), true)) {
+            $_SESSION['flash_error'] = 'Sucursal no válida.';
+            $this->porSucursalRedirect();
+        }
+        if (mb_strlen($text) > 255) {
+            $_SESSION['flash_error'] = 'El horario de atención no puede superar 255 caracteres.';
+            $this->porSucursalRedirect();
+        }
+        if ($this->service->updateBranchSchedule($this->orgCompanyIds(), $branch, $text)) {
+            $_SESSION['flash_success'] = $text !== ''
+                ? "Horario de atención de {$branch} actualizado."
+                : "Horario de atención de {$branch} quitado.";
+        } else {
+            $_SESSION['flash_error'] = 'No se pudo guardar el horario de atención (¿migración de sucursales aplicada?).';
+        }
+        $this->porSucursalRedirect();
+    }
+
+    /** Vuelta a Por Sucursal conservando los filtros con los que se abrió el modal. */
+    private function porSucursalRedirect(){
+        $qs = [];
+        $modo = postString('back_modo');
+        if (in_array($modo, ['completa', 'semana', 'finde'], true)) {
+            $qs['modo'] = $modo;
+        }
+        foreach (['city', 'branch', 'from', 'to'] as $f) {
+            $v = postString('back_' . $f);
+            if ($v !== '' && preg_match('/^[\p{L}\p{N} .\'&()\-]{1,80}$/u', $v)) {
+                $qs[$f] = $v;
+            }
+        }
+        redirect('registroHoras/porSucursal' . (!empty($qs) ? '?' . http_build_query($qs) : ''));
     }
 
     /** Carga de horarios (equivale a record_hours de hoursapp). */
@@ -1481,6 +1528,8 @@ class RegistroHorasController {
             }
             $day = $this->service->computeDay($org, $date, $work, false, $blockHolidayFn);
             foreach ($work as $b) {
+                $bDetail = $day['block_extra_detail'][(int)($b->id ?? 0)] ?? null;
+                $bHolName = (string)($blockHolidayNameFn($b) ?? '');
                 $records[] = (object)[
                     'id'          => (int)($b->id ?? 0),
                     'date'        => $date,
@@ -1496,10 +1545,13 @@ class RegistroHorasController {
                     'hours'       => round($this->service->blockMinutes($b->start_time, $b->end_time) / 60, 2),
                     // la extra se atribuye al bloque (y sucursal) que la genera
                     'extra_hours' => $day['block_extra'][(int)($b->id ?? 0)] ?? 0,
+                    // origen de la extra (tooltip del badge +x)
+                    'extra_kind'   => $bDetail['tipo'] ?? '',
+                    'extra_reason' => $this->extraReasonText($bDetail, $bHolName, substr($b->start_time, 0, 5), substr($b->end_time, 0, 5)),
                     // el badge Feriado marca el BLOQUE cuya sucursal tiene el feriado
                     'is_holiday'  => $blockHolidayFn($b),
                     // nombre del feriado para el tooltip del calendario
-                    'holiday_name' => (string)($blockHolidayNameFn($b) ?? ''),
+                    'holiday_name' => $bHolName,
                     // bloque nocturno heredado partido virtualmente en lectura:
                     // editar/borrar opera sobre el registro original completo,
                     // por eso el modal precarga los datos ORIGINALES (no la mitad)
@@ -1512,6 +1564,28 @@ class RegistroHorasController {
             }
         }
         return $records;
+    }
+
+    /** Explicación humana del ORIGEN de las horas extra de un bloque. */
+    private function extraReasonText($detail, $holidayName, $start, $end){
+        if ($detail === null) {
+            return '';
+        }
+        // Tramo de un turno que cruza medianoche: se aclara siempre.
+        $noct = ($start === '00:00' || $end === '23:59')
+            ? ' Tramo ' . $start . '–' . $end . ' de un turno que cruza medianoche.'
+            : '';
+        if ($detail['tipo'] === 'feriado') {
+            return 'Feriado' . ($holidayName !== '' ? ' — ' . $holidayName : '')
+                . ': todas las horas del bloque cuentan como extra.' . $noct;
+        }
+        if ($detail['tipo'] === 'overtime') {
+            return 'Bloque de horas extra: la clasificación 50/100 (nocturnas, domingos, feriados) la asigna el módulo de horas extras de la suite.';
+        }
+        $umbral = (int)($detail['umbral'] ?? 8);
+        $dias = $umbral === 5 ? 'sábados y domingos' : 'lunes a viernes';
+        $acum = rtrim(rtrim(number_format((float)($detail['acumulado'] ?? 0), 2, '.', ''), '0'), '.');
+        return "Excedente sobre el umbral diario de {$umbral} h ({$dias}). Acumulado del día al cierre de este bloque: {$acum} h." . $noct;
     }
 
     private function pickEmployee($employees, $selectedId){

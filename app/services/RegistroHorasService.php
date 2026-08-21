@@ -556,6 +556,34 @@ class RegistroHorasService {
     }
 
     /**
+     * Actualiza el horario de atención de una sucursal DEL GRUPO (editable
+     * desde la vista Por Sucursal). Texto vacío lo quita. La condición
+     * company_id IN (...) impide tocar sucursales homónimas de otra
+     * organización.
+     */
+    public function updateBranchSchedule(array $companyIds, $branchName, $text) {
+        $companyIds = array_values(array_filter(array_map('intval', $companyIds)));
+        if (empty($companyIds) || (string)$branchName === '') {
+            return false;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM company_branches LIKE 'schedule_text'");
+            if (!$this->db->single()) {
+                return false;
+            }
+            $ph = implode(',', array_fill(0, count($companyIds), '?'));
+            $this->db->query(
+                "UPDATE company_branches SET schedule_text = ?
+                 WHERE name = ? AND is_active = 1 AND company_id IN ($ph)"
+            );
+            $this->db->execute(array_merge([(string)$text !== '' ? $text : null, $branchName], $companyIds));
+            return true; // rowCount 0 = texto sin cambios: también es éxito
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Fechas con horas registradas en una sucursal (mapa fecha => cantidad de
      * bloques), acotado al grupo organizacional — alimenta los calendarios de
      * selección de la duplicación y el borrado masivo (espejo de
@@ -916,6 +944,7 @@ class RegistroHorasService {
         $totalMin = 0;
         $extraMin = 0;
         $blockExtra = [];
+        $blockExtraDetail = []; // id => ['tipo' => feriado|umbral|overtime, ...] — el ORIGEN de la extra
 
         if ($org === 'moderna') {
             $dow = (int)date('N', strtotime($date));
@@ -926,15 +955,20 @@ class RegistroHorasService {
                 $blockHoliday = is_callable($blockHolidayFn) ? (bool)$blockHolidayFn($b) : (bool)$isHoliday;
                 if ($blockHoliday) {
                     $thisExtra = $dur;
+                    $detail = ['tipo' => 'feriado', 'umbral' => $thresholdMin / 60];
                 } else {
                     $newAcc = $accMin + $dur;
                     $thisExtra = max(0, $newAcc - max($thresholdMin, $accMin));
                     $accMin = $newAcc;
+                    $detail = ['tipo' => 'umbral', 'umbral' => $thresholdMin / 60, 'acumulado' => round($accMin / 60, 2)];
                 }
                 $extraMin += $thisExtra;
                 $totalMin += $dur;
                 if (isset($b->id)) {
                     $blockExtra[(int)$b->id] = round($thisExtra / 60, 2);
+                    if ($thisExtra > 0) {
+                        $blockExtraDetail[(int)$b->id] = $detail;
+                    }
                 }
             }
         } else {
@@ -945,6 +979,7 @@ class RegistroHorasService {
                     $extraMin += $dur;
                     if (isset($b->id)) {
                         $blockExtra[(int)$b->id] = round($dur / 60, 2);
+                        $blockExtraDetail[(int)$b->id] = ['tipo' => 'overtime'];
                     }
                 }
             }
@@ -954,6 +989,7 @@ class RegistroHorasService {
             'hours' => round($totalMin / 60, 2),
             'extra' => round($extraMin / 60, 2),
             'block_extra' => $blockExtra,
+            'block_extra_detail' => $blockExtraDetail,
         ];
     }
 
