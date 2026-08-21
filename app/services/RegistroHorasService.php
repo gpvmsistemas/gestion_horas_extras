@@ -83,13 +83,28 @@ class RegistroHorasService {
         }
     }
 
+    /**
+     * Columnas de lectura de bloques. Los bloques type='shift' del planificador
+     * suelen tener start/end NULL (las horas viven en shift_time_ranges): se
+     * reconstituyen con COALESCE (envolvente MIN-MAX del turno, igual que
+     * WorkSchedule), para que el cálculo de horas/extras y las vistas NO los
+     * ignoren. branch_id se incluye solo si la columna existe.
+     */
+    private function blockSelectColumns() {
+        $branchId = $this->branchIdColumnReady() ? 'es.branch_id,' : 'NULL AS branch_id,';
+        return "es.id, es.user_id, es.schedule_date, es.shift_id, {$branchId}
+                COALESCE(es.start_time, (SELECT MIN(str.start_time) FROM shift_time_ranges str WHERE str.shift_id = es.shift_id)) AS start_time,
+                COALESCE(es.end_time,   (SELECT MAX(str.end_time)   FROM shift_time_ranges str WHERE str.shift_id = es.shift_id)) AS end_time,
+                es.type, es.notes, es.branch_name";
+    }
+
     /** Bloques del día de un empleado, ordenados por hora de inicio. */
     public function getDayBlocks($userId, $date) {
         $this->db->query(
-            'SELECT id, user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name
-             FROM employee_schedules
-             WHERE user_id = ? AND schedule_date = ?
-             ORDER BY start_time IS NULL, start_time ASC, id ASC'
+            'SELECT ' . $this->blockSelectColumns() . '
+             FROM employee_schedules es
+             WHERE es.user_id = ? AND es.schedule_date = ?
+             ORDER BY start_time IS NULL, start_time ASC, es.id ASC'
         );
         return $this->db->resultSet([(int)$userId, $date]);
     }
@@ -97,10 +112,10 @@ class RegistroHorasService {
     /** Mapa fecha => bloques para un empleado en un rango. */
     public function getBlocksForRange($userId, $startDate, $endDate) {
         $this->db->query(
-            'SELECT id, user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name
-             FROM employee_schedules
-             WHERE user_id = ? AND schedule_date BETWEEN ? AND ?
-             ORDER BY schedule_date ASC, start_time IS NULL, start_time ASC, id ASC'
+            'SELECT ' . $this->blockSelectColumns() . '
+             FROM employee_schedules es
+             WHERE es.user_id = ? AND es.schedule_date BETWEEN ? AND ?
+             ORDER BY es.schedule_date ASC, start_time IS NULL, start_time ASC, es.id ASC'
         );
         $rows = $this->db->resultSet([(int)$userId, $startDate, $endDate]);
         $map = [];
@@ -118,10 +133,10 @@ class RegistroHorasService {
         }
         $ph = implode(',', array_fill(0, count($userIds), '?'));
         $this->db->query(
-            "SELECT id, user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name
-             FROM employee_schedules
-             WHERE user_id IN ($ph) AND schedule_date BETWEEN ? AND ?
-             ORDER BY schedule_date ASC, start_time IS NULL, start_time ASC, id ASC"
+            'SELECT ' . $this->blockSelectColumns() . "
+             FROM employee_schedules es
+             WHERE es.user_id IN ($ph) AND es.schedule_date BETWEEN ? AND ?
+             ORDER BY es.schedule_date ASC, start_time IS NULL, start_time ASC, es.id ASC"
         );
         $rows = $this->db->resultSet(array_merge($userIds, [$startDate, $endDate]));
         $map = [];
@@ -433,8 +448,11 @@ class RegistroHorasService {
         if ($end === '23:59' || $end === '23:59:00') {
             $e = 24 * 60;
         }
-        if ($e <= $s) {
-            $e += 24 * 60; // bloque nocturno guardado sin dividir (datos históricos del planificador)
+        // Estricto (<): inicio == fin es un bloque de 0 minutos (igual que
+        // hoursapp), NUNCA un turno de 24 h fantasma. Solo end < start se
+        // interpreta como nocturno sin dividir (datos históricos del planificador).
+        if ($e < $s) {
+            $e += 24 * 60;
         }
         return $e - $s;
     }
@@ -450,7 +468,10 @@ class RegistroHorasService {
      * hoursapp original).
      * Paviotti: horas = todos los bloques; extras = bloques type='overtime'
      * (la clasificación 50/100 sigue siendo del módulo de horas extras).
-     * Devuelve ['hours' => float, 'extra' => float].
+     * Devuelve ['hours' => float, 'extra' => float,
+     *           'block_extra' => [id de bloque => horas extra de ESE bloque]]
+     * — el excedente se atribuye al bloque (y sucursal) que lo genera, igual
+     * que recalculate_daily_extra_hours de hoursapp.
      */
     public function computeDay($org, $date, array $blocks, $isHoliday, $blockHolidayFn = null) {
         $work = array_values(array_filter($blocks, function ($b) {
@@ -462,6 +483,7 @@ class RegistroHorasService {
 
         $totalMin = 0;
         $extraMin = 0;
+        $blockExtra = [];
 
         if ($org === 'moderna') {
             $dow = (int)date('N', strtotime($date));
@@ -471,13 +493,17 @@ class RegistroHorasService {
                 $dur = $this->blockMinutes($b->start_time, $b->end_time);
                 $blockHoliday = is_callable($blockHolidayFn) ? (bool)$blockHolidayFn($b) : (bool)$isHoliday;
                 if ($blockHoliday) {
-                    $extraMin += $dur;
+                    $thisExtra = $dur;
                 } else {
                     $newAcc = $accMin + $dur;
-                    $extraMin += max(0, $newAcc - max($thresholdMin, $accMin));
+                    $thisExtra = max(0, $newAcc - max($thresholdMin, $accMin));
                     $accMin = $newAcc;
                 }
+                $extraMin += $thisExtra;
                 $totalMin += $dur;
+                if (isset($b->id)) {
+                    $blockExtra[(int)$b->id] = round($thisExtra / 60, 2);
+                }
             }
         } else {
             foreach ($work as $b) {
@@ -485,6 +511,9 @@ class RegistroHorasService {
                 $totalMin += $dur;
                 if ($b->type === 'overtime') {
                     $extraMin += $dur;
+                    if (isset($b->id)) {
+                        $blockExtra[(int)$b->id] = round($dur / 60, 2);
+                    }
                 }
             }
         }
@@ -492,6 +521,7 @@ class RegistroHorasService {
         return [
             'hours' => round($totalMin / 60, 2),
             'extra' => round($extraMin / 60, 2),
+            'block_extra' => $blockExtra,
         ];
     }
 

@@ -25,6 +25,13 @@ $daysInMonth = (int)date('t', strtotime($firstOfMonth));
 $firstDow = (int)date('N', strtotime($firstOfMonth)); // 1=Lun
 $today = ($monthValue === date('Y-m')) ? (int)date('j') : 0;
 $mesesEs = [1=>'Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+// D6: precisión fraccional visible — 8 se muestra "8", 7.5 se muestra "7.5".
+if (!function_exists('rh_fmt_horas')) {
+    function rh_fmt_horas($v) {
+        $s = rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.');
+        return $s === '' ? '0' : $s;
+    }
+}
 $monthLabel = $mesesEs[$month] . ' ' . $year;
 ?>
 
@@ -114,7 +121,7 @@ $monthLabel = $mesesEs[$month] . ' ' . $year;
                     ?>
                     <div class="rh-cal-day <?php echo implode(' ', $classes); ?>">
                         <?php echo $d; ?>
-                        <?php if ($dayHours > 0): ?><span class="rh-cal-hrs"><?php echo number_format($dayHours, 0); ?> hs</span><?php endif; ?>
+                        <?php if ($dayHours > 0): ?><span class="rh-cal-hrs"><?php echo rh_fmt_horas($dayHours); ?> hs</span><?php endif; ?>
                     </div>
                     <?php endfor; ?>
                 </div>
@@ -153,8 +160,8 @@ $monthLabel = $mesesEs[$month] . ' ' . $year;
                                     <?php if ($dowN >= 6): ?><span class="badge bg-secondary ms-1">Fin de semana</span><?php endif; ?>
                                 </div>
                                 <div class="fw-bold">
-                                    Total: <?php echo number_format($dayTotal, 0); ?> hs
-                                    <?php if ($dayExtras > 0): ?><span class="text-warning ms-1">(+<?php echo number_format($dayExtras, 0); ?> extra)</span><?php endif; ?>
+                                    Total: <?php echo rh_fmt_horas($dayTotal); ?> hs
+                                    <?php if ($dayExtras > 0): ?><span class="text-warning ms-1">(+<?php echo rh_fmt_horas($dayExtras); ?> extra)</span><?php endif; ?>
                                 </div>
                             </div>
                             <div class="d-flex flex-column gap-2">
@@ -181,10 +188,10 @@ $monthLabel = $mesesEs[$month] . ' ' . $year;
 <section class="admin-surface">
     <div class="admin-surface-body d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="fs-6 fw-bold">
-            Total de horas trabajadas del mes: <?php echo number_format($totHours, 0, ',', '.'); ?> hs
+            Total de horas trabajadas del mes: <?php echo rh_fmt_horas($totHours); ?> hs
         </div>
         <div class="text-muted">
-            Extras: <span class="fw-semibold text-warning"><?php echo number_format($totExtras, 0, ',', '.'); ?> hs</span>
+            Extras: <span class="fw-semibold text-warning"><?php echo rh_fmt_horas($totExtras); ?> hs</span>
             <?php echo $data['org'] === 'moderna' ? '(umbral diario 8/5 + feriados)' : '(clasificación 50/100 de la suite)'; ?>
         </div>
     </div>

@@ -221,16 +221,16 @@ class RegistroHorasController {
                 'start_time'  => postString('start_time'),
                 'end_time'    => postString('end_time'),
                 'overwrite'   => !empty($_POST['overwrite']),
-                'skip_inactive' => !empty($_POST['skip_inactive']),
                 'employee_ids' => array_map('intval', (array)($_POST['employee_ids'] ?? [])),
             ];
-            $timeOk = preg_match('/^\d{2}:\d{2}$/', $req['start_time']) && preg_match('/^\d{2}:\d{2}$/', $req['end_time']);
-            $dateOk = preg_match('/^\d{4}-\d{2}-\d{2}$/', $req['start_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $req['end_date'])
+            $timeOk = $this->validTime($req['start_time']) && $this->validTime($req['end_time'])
+                && $req['start_time'] !== $req['end_time'];
+            $dateOk = $this->validDate($req['start_date']) && $this->validDate($req['end_date'])
                 && $req['start_date'] <= $req['end_date']
                 && count($this->dateRange($req['start_date'], $req['end_date'])) <= 93;
             $targets = array_values(array_filter($data['employees'], fn($e) => in_array($e->id, $req['employee_ids'], true)));
             if (!$timeOk || !$dateOk || empty($targets) || $req['branch_name'] === '') {
-                $_SESSION['flash_error'] = 'Revisá sucursal, fechas (máx. 93 días), horario y empleados seleccionados.';
+                $_SESSION['flash_error'] = 'Revisá sucursal, fechas (máx. 93 días), horario (entrada distinta de salida) y empleados seleccionados.';
                 redirect('registroHoras/cargaMasiva');
             }
 
@@ -395,13 +395,29 @@ class RegistroHorasController {
         ];
     }
 
+    /** Fecha ISO con calendario real (rechaza 2026-02-30, 2026-13-05). */
+    private function validDate($value){
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', (string)$value, $m)) {
+            return false;
+        }
+        return checkdate((int)$m[2], (int)$m[3], (int)$m[1]);
+    }
+
+    /** Hora HH:MM real (rechaza 25:99). */
+    private function validTime($value){
+        if (!preg_match('/^(\d{2}):(\d{2})$/', (string)$value, $m)) {
+            return false;
+        }
+        return (int)$m[1] <= 23 && (int)$m[2] <= 59;
+    }
+
     private function validateCargaInput($input, $employee){
         $errors = [];
         if (!$employee) {
-            $errors[] = 'Empleado no válido para esta empresa.';
+            $errors[] = 'Empleado no válido para esta organización.';
         }
         foreach (['start_date', 'end_date'] as $f) {
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $input[$f])) {
+            if (!$this->validDate($input[$f])) {
                 $errors[] = 'Fechas inválidas.';
                 return $errors;
             }
@@ -412,7 +428,7 @@ class RegistroHorasController {
             $errors[] = 'El rango no puede superar 93 días.';
         }
         foreach (['start_time', 'end_time'] as $f) {
-            if (!preg_match('/^\d{2}:\d{2}$/', $input[$f])) {
+            if (!$this->validTime($input[$f])) {
                 $errors[] = 'Horario inválido.';
             }
         }
@@ -423,8 +439,10 @@ class RegistroHorasController {
             $errors[] = 'Elegí una sucursal.';
         }
         if ($input['two_turns']) {
-            if (!preg_match('/^\d{2}:\d{2}$/', $input['start_time_2']) || !preg_match('/^\d{2}:\d{2}$/', $input['end_time_2'])) {
+            if (!$this->validTime($input['start_time_2']) || !$this->validTime($input['end_time_2'])) {
                 $errors[] = 'Horario del segundo turno inválido.';
+            } elseif ($input['start_time_2'] === $input['end_time_2']) {
+                $errors[] = 'En el segundo turno, la entrada y la salida no pueden ser iguales.';
             }
         }
         return $errors;
@@ -505,15 +523,15 @@ class RegistroHorasController {
                 continue;
             }
             $day = $this->service->computeDay($org, $date, $work, false, $blockHolidayFn);
-            foreach ($work as $i => $b) {
+            foreach ($work as $b) {
                 $records[] = (object)[
                     'date'        => $date,
                     'start_time'  => substr($b->start_time, 0, 5),
                     'end_time'    => substr($b->end_time, 0, 5),
                     'branch_name' => $b->branch_name ?: 'Sin sucursal',
                     'hours'       => round($this->service->blockMinutes($b->start_time, $b->end_time) / 60, 2),
-                    // la extra del día se muestra sobre el último bloque (cálculo acumulativo diario)
-                    'extra_hours' => ($i === count($work) - 1) ? $day['extra'] : 0,
+                    // la extra se atribuye al bloque (y sucursal) que la genera
+                    'extra_hours' => $day['block_extra'][(int)($b->id ?? 0)] ?? 0,
                     // el badge Feriado marca el BLOQUE cuya sucursal tiene el feriado
                     'is_holiday'  => $blockHolidayFn($b),
                 ];
@@ -607,26 +625,43 @@ class RegistroHorasController {
         return ['days' => $days, 'emps' => count($emps), 'skipped' => $skipped];
     }
 
-    /** Vista previa de carga masiva: por empleado, días con conflicto/bloqueo. */
+    /** Vista previa de carga masiva: por empleado, días con conflicto/bloqueo/feriado. */
     private function buildMassivePreview($targets, $req){
         $dates = $this->dateRange($req['start_date'], $req['end_date']);
+        $holidayCtx = $this->service->buildHolidayContext($this->orgCompanyIds(), $dates[0], end($dates));
         $rows = [];
         foreach ($targets as $emp) {
             $classified = $this->service->classifyDates($emp->id, $dates);
+            // Feriados del rango para la sucursal donde se van a cargar las horas.
+            $holidays = [];
+            foreach ($dates as $d) {
+                if ($this->service->blockHolidayName($holidayCtx, $d, (int)($emp->company_id ?? 0) ?: (int)adminCompanyId(), null, $req['branch_name']) !== null) {
+                    $holidays[] = $d;
+                }
+            }
             $rows[] = [
                 'employee' => $emp,
                 'dates'    => $dates,
                 'blocked'  => $classified['blocked'],
                 'conflict' => array_keys($classified['conflict']),
+                'holidays' => $holidays,
             ];
         }
         return $rows;
     }
 
+    /**
+     * Ejecuta la carga masiva armando el plan COMPLETO por empleado antes de
+     * guardar: cada fecha se persiste una sola vez con todos sus bloques
+     * (el principal del día + la cola de un turno nocturno del día anterior),
+     * evitando que un overwrite posterior borre segmentos recién insertados.
+     */
     private function executeMassive($previewRows, $req){
         $days = 0; $skipped = 0; $emps = [];
         foreach ($previewRows as $row) {
             $emp = $row['employee'];
+            $plan = [];
+            $anchors = []; // fecha ancla => tenía conflicto (habilita overwrite)
             foreach ($row['dates'] as $date) {
                 if (in_array($date, $row['blocked'], true)) {
                     $skipped++;
@@ -637,17 +672,20 @@ class RegistroHorasController {
                     $skipped++;
                     continue;
                 }
-                $blocks = [];
+                $anchors[$date] = $isConflict;
                 foreach ($this->service->splitRange($date, $req['start_time'], $req['end_time']) as $seg) {
-                    // los segmentos del día siguiente por cruce de medianoche se guardan en su fecha
-                    $blocks[$seg[0]][] = ['start' => $seg[1], 'end' => $seg[2], 'branch' => $req['branch_name']];
+                    $plan[$seg[0]][] = ['start' => $seg[1], 'end' => $seg[2], 'branch' => $req['branch_name']];
                 }
-                $ok = true;
-                foreach ($blocks as $segDate => $segBlocks) {
-                    $ok = $this->service->saveDay($emp->id, $segDate, $segBlocks, $isConflict && $segDate === $date) && $ok;
-                }
-                if ($ok) {
-                    $days++;
+            }
+            ksort($plan);
+            $okAll = true;
+            foreach ($plan as $segDate => $segBlocks) {
+                $overwrite = !empty($anchors[$segDate]) && $req['overwrite'];
+                $okAll = $this->service->saveDay($emp->id, $segDate, $segBlocks, $overwrite) && $okAll;
+            }
+            if (!empty($plan)) {
+                if ($okAll) {
+                    $days += count($anchors);
                     $emps[$emp->id] = true;
                 } else {
                     $skipped++;

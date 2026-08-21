@@ -27,12 +27,13 @@ $_conflictEmp  = $data['employees'][2] ?? null;
     <div class="admin-surface-body">
         <div class="table-responsive mb-3">
             <table class="table table-striped admin-table mb-0">
-                <thead><tr><th>Empleado</th><th class="text-center">Días a cargar</th><th class="text-center">Con conflicto</th><th class="text-center">Licencia/vacaciones</th><th>Resultado esperado</th></tr></thead>
+                <thead><tr><th>Empleado</th><th class="text-center">Días a cargar</th><th class="text-center">Con conflicto</th><th class="text-center">Licencia/vacaciones</th><th class="text-center">Feriados</th><th>Resultado esperado</th></tr></thead>
                 <tbody>
                     <?php foreach ($_preview as $row):
                         $total = count($row['dates']);
                         $nConf = count($row['conflict']);
                         $nBlock = count($row['blocked']);
+                        $nHoli = count($row['holidays'] ?? []);
                         $nSave = $total - $nBlock - (!$_req['overwrite'] ? $nConf : 0);
                     ?>
                     <tr>
@@ -40,6 +41,7 @@ $_conflictEmp  = $data['employees'][2] ?? null;
                         <td class="text-center"><?php echo $total; ?></td>
                         <td class="text-center"><?php echo $nConf > 0 ? '<span class="badge bg-warning text-dark">' . $nConf . '</span>' : '—'; ?></td>
                         <td class="text-center"><?php echo $nBlock > 0 ? '<span class="badge bg-info text-dark">' . $nBlock . '</span>' : '—'; ?></td>
+                        <td class="text-center"><?php echo $nHoli > 0 ? '<span class="badge bg-danger" title="' . htmlspecialchars(implode(', ', array_map(fn($d) => date('d/m', strtotime($d)), $row['holidays']))) . '">' . $nHoli . '</span>' : '—'; ?></td>
                         <td class="small">
                             Se cargan <?php echo max(0, $nSave); ?> día(s)<?php
                                 if ($nConf > 0) echo $_req['overwrite'] ? ', sobrescribiendo los ' . $nConf . ' en conflicto' : ', omitiendo los ' . $nConf . ' en conflicto';
@@ -58,7 +60,6 @@ $_conflictEmp  = $data['employees'][2] ?? null;
             <input type="hidden" name="<?php echo $_f; ?>" value="<?php echo htmlspecialchars((string)$_req[$_f]); ?>">
             <?php endforeach; ?>
             <?php if ($_req['overwrite']): ?><input type="hidden" name="overwrite" value="1"><?php endif; ?>
-            <?php if ($_req['skip_inactive']): ?><input type="hidden" name="skip_inactive" value="1"><?php endif; ?>
             <?php foreach ($_req['employee_ids'] as $_eid): ?>
             <input type="hidden" name="employee_ids[]" value="<?php echo (int)$_eid; ?>">
             <?php endforeach; ?>
@@ -123,10 +124,7 @@ $_conflictEmp  = $data['employees'][2] ?? null;
                             <input type="time" name="end_time" class="form-control" value="<?php echo htmlspecialchars($_req['end_time'] ?? '16:00'); ?>">
                         </div>
                     </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" name="skip_inactive" value="1" id="mSkipInactive" checked>
-                        <label class="form-check-label" for="mSkipInactive">Omitir empleados en licencia/vacaciones</label>
-                    </div>
+                    <div class="form-text mb-2">Los días con vacaciones o licencia aprobada se omiten automáticamente y se detallan en la verificación.</div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" name="overwrite" value="1" id="mOverwrite" <?php echo ($_req && $_req['overwrite']) ? 'checked' : ''; ?>>
                         <label class="form-check-label" for="mOverwrite">Sobrescribir horarios existentes</label>
@@ -172,7 +170,7 @@ $_conflictEmp  = $data['employees'][2] ?? null;
                                 <td><span class="badge <?php echo org_state_badge_class($emp->state); ?>"><?php echo htmlspecialchars($emp->state); ?></span></td>
                                 <td class="small text-muted">
                                     <?php if ($blocked): ?>
-                                        <i class="fas fa-exclamation-triangle text-warning me-1"></i>Se omite si "omitir inactivos" está activo
+                                        <i class="fas fa-exclamation-triangle text-warning me-1"></i>Sus días con licencia/vacaciones se omiten automáticamente
                                     <?php elseif (!$data['realMode'] && $_conflictEmp && $emp->id === $_conflictEmp->id): ?>
                                         <i class="fas fa-info-circle me-1"></i>Ya tiene horario el 18/08 (conflicto)
                                     <?php else: ?>
