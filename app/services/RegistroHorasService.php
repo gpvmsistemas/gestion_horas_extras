@@ -42,16 +42,31 @@ class RegistroHorasService {
 
     // ─────────────────────────── Lectura ───────────────────────────
 
-    /** Empleados activos de una empresa, con su sucursal (área) resuelta. */
+    /** Empleados activos de una empresa, con su sucursal (company_branches o área) resuelta. */
     public function getActiveEmployees($companyId) {
-        $this->db->query(
-            "SELECT u.id, u.full_name, u.area_id, a.name AS area_name
-             FROM users u
-             LEFT JOIN areas a ON a.id = u.area_id
-             WHERE u.company_id = ? AND u.is_active = 1 AND u.role = 'empleado'
-             ORDER BY a.name IS NULL, a.name ASC, u.full_name ASC"
-        );
-        return $this->db->resultSet([(int)$companyId]);
+        try {
+            $this->db->query(
+                "SELECT u.id, u.full_name, u.area_id, u.branch_id,
+                        cb.name AS branch_name, a.name AS area_name
+                 FROM users u
+                 LEFT JOIN company_branches cb ON cb.id = u.branch_id
+                 LEFT JOIN areas a ON a.id = u.area_id
+                 WHERE u.company_id = ? AND u.is_active = 1 AND u.role = 'empleado'
+                 ORDER BY cb.name IS NULL, cb.name ASC, a.name IS NULL, a.name ASC, u.full_name ASC"
+            );
+            return $this->db->resultSet([(int)$companyId]);
+        } catch (Throwable $e) {
+            // Esquema sin users.branch_id/company_branches (pre-migración)
+            $this->db->query(
+                "SELECT u.id, u.full_name, u.area_id, NULL AS branch_id,
+                        NULL AS branch_name, a.name AS area_name
+                 FROM users u
+                 LEFT JOIN areas a ON a.id = u.area_id
+                 WHERE u.company_id = ? AND u.is_active = 1 AND u.role = 'empleado'
+                 ORDER BY a.name IS NULL, a.name ASC, u.full_name ASC"
+            );
+            return $this->db->resultSet([(int)$companyId]);
+        }
     }
 
     /** Bloques del día de un empleado, ordenados por hora de inicio. */
@@ -174,19 +189,40 @@ class RegistroHorasService {
                 );
                 $this->db->execute([(int)$userId, $date]);
             }
+            $withBranchId = $this->branchIdColumnReady();
             foreach ($blocks as $b) {
-                $this->db->query(
-                    "INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name)
-                     VALUES (?, ?, NULL, ?, ?, 'custom', ?, ?)"
-                );
-                $this->db->execute([
-                    (int)$userId,
-                    $date,
-                    $b['start'] . ':00',
-                    $b['end'] . ':00',
-                    ($b['notes'] ?? '') !== '' ? $b['notes'] : null,
-                    ($b['branch'] ?? '') !== '' ? $b['branch'] : null,
-                ]);
+                $branchName = ($b['branch'] ?? '') !== '' ? $b['branch'] : null;
+                // Resolver ANTES de preparar el INSERT: el wrapper Database guarda
+                // un único statement y resolveBranchId lo reemplazaría (HY093).
+                $branchId = ($withBranchId && $branchName !== null) ? $this->resolveBranchId($branchName) : null;
+                if ($withBranchId) {
+                    $this->db->query(
+                        "INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name, branch_id)
+                         VALUES (?, ?, NULL, ?, ?, 'custom', ?, ?, ?)"
+                    );
+                    $this->db->execute([
+                        (int)$userId,
+                        $date,
+                        $b['start'] . ':00',
+                        $b['end'] . ':00',
+                        ($b['notes'] ?? '') !== '' ? $b['notes'] : null,
+                        $branchName,
+                        $branchId,
+                    ]);
+                } else {
+                    $this->db->query(
+                        "INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_name)
+                         VALUES (?, ?, NULL, ?, ?, 'custom', ?, ?)"
+                    );
+                    $this->db->execute([
+                        (int)$userId,
+                        $date,
+                        $b['start'] . ':00',
+                        $b['end'] . ':00',
+                        ($b['notes'] ?? '') !== '' ? $b['notes'] : null,
+                        $branchName,
+                    ]);
+                }
             }
             if ($ownTx) {
                 $this->db->commit();
@@ -198,22 +234,66 @@ class RegistroHorasService {
         }
     }
 
+    /** employee_schedules.branch_id existe (modelo relacional de sucursales). */
+    private function branchIdColumnReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM employee_schedules LIKE 'branch_id'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    /** Id en company_branches para un nombre de sucursal (null si no existe). */
+    private function resolveBranchId($branchName) {
+        static $cache = [];
+        if (array_key_exists($branchName, $cache)) {
+            return $cache[$branchName];
+        }
+        try {
+            $this->db->query('SELECT id FROM company_branches WHERE name = ? AND is_active = 1 LIMIT 1');
+            $row = $this->db->single([$branchName]);
+            $cache[$branchName] = $row ? (int)$row->id : null;
+        } catch (Throwable $e) {
+            $cache[$branchName] = null;
+        }
+        return $cache[$branchName];
+    }
+
     // ─────────────────────────── Feriados ───────────────────────────
 
     /**
-     * Feriados de la empresa en un rango: fecha => nombre.
-     * $city: además de los generales (city NULL), matchea los locales de esa ciudad.
+     * Feriados en un rango: fecha => nombre.
+     * Usa el motor de la suite (Holiday::getHolidaysForPeriod: feriados fijos de
+     * la empresa + reglas recurrentes por provincia/localidad, resueltas por la
+     * sucursal del empleado si se indica $branchId). Fallback: tabla holidays.
      */
-    public function getHolidaysInRange($companyId, $startDate, $endDate, $city = null) {
+    public function getHolidaysInRange($companyId, $startDate, $endDate, $branchId = null) {
+        if (class_exists('Holiday') && method_exists('Holiday', 'getHolidaysForPeriod')) {
+            try {
+                $rows = (new Holiday($this->db))->getHolidaysForPeriod((int)$companyId, $startDate, $endDate, $branchId);
+                $map = [];
+                foreach ($rows as $r) {
+                    $map[$r->holiday_date] = $r->name;
+                }
+                return $map;
+            } catch (Throwable $e) {
+                // sigue al fallback
+            }
+        }
         try {
             $this->db->query(
-                'SELECT holiday_date, name, city FROM holidays
-                 WHERE company_id = ? AND holiday_date BETWEEN ? AND ?
-                   AND (city IS NULL OR city = ?)'
+                'SELECT holiday_date, name FROM holidays
+                 WHERE company_id = ? AND holiday_date BETWEEN ? AND ?'
             );
-            $rows = $this->db->resultSet([(int)$companyId, $startDate, $endDate, (string)$city]);
+            $rows = $this->db->resultSet([(int)$companyId, $startDate, $endDate]);
         } catch (Throwable $e) {
-            return []; // columna city aún no migrada en este entorno
+            return [];
         }
         $map = [];
         foreach ($rows as $r) {

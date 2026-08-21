@@ -152,7 +152,8 @@ class RegistroHorasController {
             $first = $month . '-01';
             $last = date('Y-m-t', strtotime($first));
             $blocksMap = $this->service->getBlocksForRange($data['selected']->id, $first, $last);
-            $holidays = $this->service->getHolidaysInRange(adminCompanyId(), $first, $last);
+            // Feriados resueltos por la sucursal del empleado (reglas por localidad de la suite).
+            $holidays = $this->service->getHolidaysInRange(adminCompanyId(), $first, $last, $data['selected']->branch_id ?? null);
             $data['records'] = $this->buildMonthRecords($data['org'], $blocksMap, $holidays);
         } else {
             $data['selected'] = $data['employees'][0];
@@ -327,17 +328,19 @@ class RegistroHorasController {
         }
         $companyName = (string)($_SESSION['user_company_name'] ?? 'Empresa');
         return array_map(function ($u) use ($companyName) {
-            // La sucursal del empleado es su área; sin área asignada agrupa bajo la empresa.
-            $branch = !empty($u->area_name) ? $u->area_name : ($companyName . ' (sin sucursal)');
+            // Sucursal real (company_branches) > área homónima > empresa como respaldo.
+            $branch = !empty($u->branch_name) ? $u->branch_name
+                : (!empty($u->area_name) ? $u->area_name : ($companyName . ' (sin sucursal)'));
             return (object)[
-                'id'      => (int)$u->id,
-                'name'    => $u->full_name,
+                'id'        => (int)$u->id,
+                'name'      => $u->full_name,
                 'full_name' => $u->full_name,
-                'branch'  => $branch,
-                'city'    => $branch,
-                'state'   => 'Activo',
-                'cajero'  => false,
-                'manager' => false,
+                'branch'    => $branch,
+                'branch_id' => !empty($u->branch_id) ? (int)$u->branch_id : null,
+                'city'      => $branch,
+                'state'     => 'Activo',
+                'cajero'    => false,
+                'manager'   => false,
             ];
         }, $rows);
     }

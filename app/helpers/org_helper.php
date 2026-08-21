@@ -235,9 +235,54 @@ function paviotti_sample_branches_by_group() {
     ];
 }
 
-/** Sucursales agrupadas según la organización efectiva. */
+/** La tabla company_branches (modelo de Lautaro) está disponible. */
+function org_branches_ready() {
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    try {
+        $db = new Database();
+        $db->query("SHOW TABLES LIKE 'company_branches'");
+        $ready = (bool)$db->single() && org_company_group_ready();
+    } catch (Throwable $e) {
+        $ready = false;
+    }
+    return $ready;
+}
+
+/**
+ * Sucursales agrupadas según la organización efectiva.
+ * Fuente primaria: company_branches (agrupadas por localidad) de las empresas
+ * del grupo; las listas fijas quedan solo como respaldo pre-migración.
+ */
 function org_branches_by_city($group = null) {
     $group = $group ?: org_current_group();
+    if (org_branches_ready()) {
+        static $cache = [];
+        if (!array_key_exists($group, $cache)) {
+            $map = [];
+            try {
+                $db = new Database();
+                $db->query(
+                    'SELECT cb.name, cb.locality
+                     FROM company_branches cb
+                     JOIN companies c ON c.id = cb.company_id
+                     WHERE cb.is_active = 1 AND c.organization_group = ?
+                     ORDER BY cb.locality ASC, cb.name ASC'
+                );
+                foreach ($db->resultSet([$group]) as $row) {
+                    $map[$row->locality !== '' ? $row->locality : 'Otras'][] = $row->name;
+                }
+            } catch (Throwable $e) {
+                $map = [];
+            }
+            $cache[$group] = $map;
+        }
+        if (!empty($cache[$group])) {
+            return $cache[$group];
+        }
+    }
     return $group === 'moderna' ? moderna_branches_by_city() : paviotti_sample_branches_by_group();
 }
 
