@@ -152,11 +152,12 @@ class RegistroHorasController {
             $first = $month . '-01';
             $last = date('Y-m-t', strtotime($first));
             $blocksMap = $this->service->getBlocksForRange($data['selected']->id, $first, $last);
-            // Feriados resueltos por la empresa y sucursal DEL EMPLEADO
-            // (el módulo es org-wide; la empresa activa no interviene).
+            // Feriados evaluados POR BLOQUE: nacionales para todas las cadenas,
+            // fijos por la empresa del empleado, locales por la sucursal donde
+            // se registró cada hora.
             $empCompanyId = (int)($data['selected']->company_id ?? 0) ?: (int)adminCompanyId();
-            $holidays = $this->service->getHolidaysInRange($empCompanyId, $first, $last, $data['selected']->branch_id ?? null);
-            $data['records'] = $this->buildMonthRecords($data['org'], $blocksMap, $holidays);
+            $holidayCtx = $this->service->buildHolidayContext($this->orgCompanyIds(), $first, $last);
+            $data['records'] = $this->buildMonthRecords($data['org'], $blocksMap, $holidayCtx, $empCompanyId);
         } else {
             $data['selected'] = $data['employees'][0];
             $data['records'] = $this->sampleMonthRecords($data['org']);
@@ -484,8 +485,18 @@ class RegistroHorasController {
     }
 
     /** Registros del mes para "Por empleado" a partir de bloques reales. */
-    private function buildMonthRecords($org, $blocksMap, $holidays){
+    private function buildMonthRecords($org, $blocksMap, array $holidayCtx, $empCompanyId){
         $records = [];
+        $svc = $this->service;
+        $blockHolidayFn = function ($b) use ($svc, $holidayCtx, $empCompanyId) {
+            return $svc->blockHolidayName(
+                $holidayCtx,
+                $b->schedule_date ?? '',
+                $empCompanyId,
+                $b->branch_id ?? null,
+                $b->branch_name ?? null
+            ) !== null;
+        };
         foreach ($blocksMap as $date => $blocks) {
             $work = array_values(array_filter($blocks, function ($b) {
                 return in_array($b->type, RegistroHorasService::WORK_TYPES, true) && $b->start_time && $b->end_time;
@@ -493,8 +504,7 @@ class RegistroHorasController {
             if (empty($work)) {
                 continue;
             }
-            $isHoliday = isset($holidays[$date]);
-            $day = $this->service->computeDay($org, $date, $work, $isHoliday);
+            $day = $this->service->computeDay($org, $date, $work, false, $blockHolidayFn);
             foreach ($work as $i => $b) {
                 $records[] = (object)[
                     'date'        => $date,
@@ -504,7 +514,8 @@ class RegistroHorasController {
                     'hours'       => round($this->service->blockMinutes($b->start_time, $b->end_time) / 60, 2),
                     // la extra del día se muestra sobre el último bloque (cálculo acumulativo diario)
                     'extra_hours' => ($i === count($work) - 1) ? $day['extra'] : 0,
-                    'is_holiday'  => $isHoliday,
+                    // el badge Feriado marca el BLOQUE cuya sucursal tiene el feriado
+                    'is_holiday'  => $blockHolidayFn($b),
                 ];
             }
         }
@@ -529,21 +540,12 @@ class RegistroHorasController {
     private function buildDuplicatePreview($targets, $srcMonday, $destMonday){
         $srcDays = $this->weekDays($srcMonday);
         $destDays = $this->weekDays($destMonday);
+        // Feriados por bloque: nacionales para todos; locales según la sucursal
+        // de cada horario a copiar.
+        $holidayCtx = $this->service->buildHolidayContext($this->orgCompanyIds(), $destDays[0], end($destDays));
 
         $rows = [];
-        $holidayCache = [];
         foreach ($targets as $emp) {
-            // Feriados por empresa/sucursal del empleado (org-wide, cacheado por combinación).
-            $hKey = (int)($emp->company_id ?? 0) . ':' . (int)($emp->branch_id ?? 0);
-            if (!isset($holidayCache[$hKey])) {
-                $holidayCache[$hKey] = $this->service->getHolidaysInRange(
-                    (int)($emp->company_id ?? 0) ?: (int)adminCompanyId(),
-                    $destDays[0],
-                    end($destDays),
-                    $emp->branch_id ?? null
-                );
-            }
-            $holidays = $holidayCache[$hKey];
             $srcMap = $this->service->getBlocksForRange($emp->id, $srcDays[0], end($srcDays));
             $classified = $this->service->classifyDates($emp->id, $destDays);
             foreach ($srcDays as $i => $srcDate) {
@@ -561,10 +563,18 @@ class RegistroHorasController {
                 } else {
                     $status = 'copy';
                 }
+                $empCompanyId = (int)($emp->company_id ?? 0) ?: (int)adminCompanyId();
+                $anyHoliday = false;
+                foreach ($work as $wb) {
+                    if ($this->service->blockHolidayName($holidayCtx, $destDate, $empCompanyId, $wb->branch_id ?? null, $wb->branch_name ?? null) !== null) {
+                        $anyHoliday = true;
+                        break;
+                    }
+                }
                 $rows[] = [
                     'employee'   => $emp,
                     'dest_date'  => $destDate,
-                    'is_holiday' => isset($holidays[$destDate]),
+                    'is_holiday' => $anyHoliday,
                     'status'     => $status,
                     'blocks'     => array_map(function ($b) {
                         return [

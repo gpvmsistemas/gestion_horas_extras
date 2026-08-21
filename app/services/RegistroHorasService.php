@@ -316,6 +316,114 @@ class RegistroHorasService {
         return $map;
     }
 
+    // ─────────────── Feriados a nivel BLOQUE (regla del negocio) ───────────────
+    //  - nacionales: aplican a todas las cadenas;
+    //  - fijos (tabla holidays): por empresa del empleado;
+    //  - provincia/localidad: aplican si la SUCURSAL DONDE SE REGISTRÓ LA HORA
+    //    está en esa provincia/localidad (no la sucursal "de casa" del empleado).
+
+    /** Precarga feriados fijos y reglas recurrentes para un rango. */
+    public function buildHolidayContext(array $companyIds, $startDate, $endDate) {
+        $ctx = ['fixed' => [], 'national' => [], 'province' => [], 'locality' => []];
+        $ids = array_values(array_filter(array_map('intval', $companyIds)));
+        if (!empty($ids)) {
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            try {
+                $this->db->query("SELECT company_id, holiday_date, name FROM holidays
+                                  WHERE company_id IN ($ph) AND holiday_date BETWEEN ? AND ?");
+                foreach ($this->db->resultSet(array_merge($ids, [$startDate, $endDate])) as $r) {
+                    $ctx['fixed'][(int)$r->company_id][$r->holiday_date] = $r->name;
+                }
+            } catch (Throwable $e) {
+                // tabla holidays no disponible: seguimos solo con reglas
+            }
+        }
+        try {
+            $this->db->query('SELECT name, month_day, scope_type, province, locality FROM holiday_rules WHERE is_active = 1');
+            $rules = $this->db->resultSet();
+        } catch (Throwable $e) {
+            $rules = [];
+        }
+        $y1 = (int)substr($startDate, 0, 4);
+        $y2 = (int)substr($endDate, 0, 4);
+        foreach ($rules as $rule) {
+            for ($y = $y1; $y <= $y2; $y++) {
+                $date = $y . '-' . $rule->month_day;
+                $dt = DateTime::createFromFormat('!Y-m-d', $date);
+                if (!$dt || $dt->format('Y-m-d') !== $date || $date < $startDate || $date > $endDate) {
+                    continue;
+                }
+                if ($rule->scope_type === 'national') {
+                    $ctx['national'][$date] = $rule->name;
+                } elseif ($rule->scope_type === 'province') {
+                    $ctx['province'][$this->normalizePlace($rule->province)][$date] = $rule->name;
+                } elseif ($rule->scope_type === 'locality') {
+                    $ctx['locality'][$this->normalizePlace($rule->locality)][$date] = $rule->name;
+                }
+            }
+        }
+        return $ctx;
+    }
+
+    /** Nombre del feriado que aplica a un bloque puntual, o null. */
+    public function blockHolidayName(array $ctx, $date, $companyId, $branchId = null, $branchName = null) {
+        if (isset($ctx['national'][$date])) {
+            return $ctx['national'][$date];
+        }
+        if ((int)$companyId > 0 && isset($ctx['fixed'][(int)$companyId][$date])) {
+            return $ctx['fixed'][(int)$companyId][$date];
+        }
+        $loc = $this->branchLocation($branchId, $branchName);
+        if ($loc !== null) {
+            if ($loc['locality'] !== '' && isset($ctx['locality'][$loc['locality']][$date])) {
+                return $ctx['locality'][$loc['locality']][$date];
+            }
+            if ($loc['province'] !== '' && isset($ctx['province'][$loc['province']][$date])) {
+                return $ctx['province'][$loc['province']][$date];
+            }
+        }
+        return null;
+    }
+
+    /** Ubicación normalizada de una sucursal (por id o por nombre), cacheada. */
+    private function branchLocation($branchId, $branchName) {
+        $key = ((int)$branchId) . '|' . (string)$branchName;
+        static $cache = [];
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+        $row = null;
+        try {
+            if ((int)$branchId > 0) {
+                $this->db->query('SELECT locality, province FROM company_branches WHERE id = ? LIMIT 1');
+                $row = $this->db->single([(int)$branchId]);
+            }
+            if (!$row && (string)$branchName !== '') {
+                $this->db->query('SELECT locality, province FROM company_branches WHERE name = ? AND is_active = 1 LIMIT 1');
+                $row = $this->db->single([(string)$branchName]);
+            }
+        } catch (Throwable $e) {
+            $row = null;
+        }
+        $cache[$key] = $row ? [
+            'locality' => $this->normalizePlace($row->locality ?? ''),
+            'province' => $this->normalizePlace($row->province ?? ''),
+        ] : null;
+        return $cache[$key];
+    }
+
+    /** Misma normalización que Holiday::normalizePlace (Córdoba ≈ cordoba). */
+    private function normalizePlace($value) {
+        $value = trim((string)$value);
+        if (function_exists('iconv')) {
+            $ascii = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+            if ($ascii !== false) {
+                $value = $ascii;
+            }
+        }
+        return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    }
+
     // ─────────────────────── Cálculo de horas/extras ───────────────────────
 
     /** Minutos de un bloque; '23:59' como fin cuenta como fin de día (medianoche). */
@@ -334,12 +442,17 @@ class RegistroHorasService {
     /**
      * Horas y extras de un día según la organización.
      * Moderna: umbral diario acumulado 8h (L-V) / 5h (S-D) sobre los bloques
-     * ordenados por inicio; feriado => todas las horas son extra.
+     * ordenados por inicio; feriado => las horas del bloque son extra.
+     * $blockHolidayFn (opcional): callable(bloque) => bool que evalúa el feriado
+     * POR BLOQUE según la sucursal donde se registró la hora; los bloques en
+     * feriado son 100% extra y no consumen el umbral (los demás acumulan entre
+     * sí). Sin la callable, $isHoliday aplica a todo el día (comportamiento
+     * hoursapp original).
      * Paviotti: horas = todos los bloques; extras = bloques type='overtime'
      * (la clasificación 50/100 sigue siendo del módulo de horas extras).
      * Devuelve ['hours' => float, 'extra' => float].
      */
-    public function computeDay($org, $date, array $blocks, $isHoliday) {
+    public function computeDay($org, $date, array $blocks, $isHoliday, $blockHolidayFn = null) {
         $work = array_values(array_filter($blocks, function ($b) {
             return in_array($b->type, self::WORK_TYPES, true) && $b->start_time && $b->end_time;
         }));
@@ -353,13 +466,16 @@ class RegistroHorasService {
         if ($org === 'moderna') {
             $dow = (int)date('N', strtotime($date));
             $thresholdMin = ($dow >= 6 ? 5 : 8) * 60;
+            $accMin = 0; // acumulado de bloques NO feriados contra el umbral
             foreach ($work as $b) {
                 $dur = $this->blockMinutes($b->start_time, $b->end_time);
-                if ($isHoliday) {
+                $blockHoliday = is_callable($blockHolidayFn) ? (bool)$blockHolidayFn($b) : (bool)$isHoliday;
+                if ($blockHoliday) {
                     $extraMin += $dur;
                 } else {
-                    $newTotal = $totalMin + $dur;
-                    $extraMin += max(0, $newTotal - max($thresholdMin, $totalMin));
+                    $newAcc = $accMin + $dur;
+                    $extraMin += max(0, $newAcc - max($thresholdMin, $accMin));
+                    $accMin = $newAcc;
                 }
                 $totalMin += $dur;
             }
