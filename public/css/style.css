@@ -5325,3 +5325,12 @@ body.org-moderna .db-dark-head {
 .rh-tip .rh-tip-rango { font-variant-numeric: tabular-nums; opacity: .95; }
 .rh-tip .rh-tip-feriado { color: #ffb3b3; font-weight: 600; margin-top: .25rem; }
 .rh-tip .rh-tip-hint { margin-top: .35rem; font-size: .7rem; opacity: .75; }
+
+/* Variantes de color del RhTooltip (derivadas del contexto o data-rh-variant) */
+.rh-tip { transition: opacity .08s ease; }
+.rh-tip.rh-tip-danger  { background: var(--clr-danger); }
+.rh-tip.rh-tip-warning { background: #8a6100; }
+.rh-tip.rh-tip-primary { background: var(--clr-primary); }
+.rh-tip.rh-tip-success { background: #157a55; }
+.rh-tip.rh-tip-info    { background: #135a6e; }
+@media (prefers-reduced-motion: reduce) { .rh-tip { transition: none; } }

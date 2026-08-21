@@ -124,4 +124,5 @@ $weekdaysShort = [1 => 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 </div>
 <?php endif; ?>
 
+<script src="<?php echo URLROOT; ?>/js/rh-tooltip.js"></script>
 <?php require APPROOT . '/views/inc/footer.php'; ?>

@@ -248,4 +248,5 @@
 
 <script src="<?php echo URLROOT; ?>/js/registro-horas-carga.js" defer></script>
 
+<script src="<?php echo URLROOT; ?>/js/rh-tooltip.js"></script>
 <?php require APPROOT . '/views/inc/footer.php'; ?>

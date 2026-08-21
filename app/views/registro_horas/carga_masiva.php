@@ -208,4 +208,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+<script src="<?php echo URLROOT; ?>/js/rh-tooltip.js"></script>
 <?php require APPROOT . '/views/inc/footer.php'; ?>
