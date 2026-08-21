@@ -25,7 +25,9 @@
         if (!queue.length) return;
         var item = queue.shift();
         var html = '';
-        if (item.image_url) {
+        if (item.video_url) {
+            html += '<video src="' + item.video_url.replace(/"/g, '&quot;') + '" class="announcement-modal-video" controls playsinline preload="metadata"></video>';
+        } else if (item.image_url) {
             html += '<img src="' + item.image_url.replace(/"/g, '&quot;') + '" class="announcement-modal-img" alt="">';
         }
         html += '<div class="text-start announcement-body">' + item.body + '</div>';
@@ -34,7 +36,7 @@
             html: html,
             showCloseButton: true,
             confirmButtonText: 'Cerrar',
-            width: '32rem',
+            width: item.video_url ? '38rem' : '32rem',
             customClass: { popup: 'announcement-swal' },
         };
         if (item.link_url) {

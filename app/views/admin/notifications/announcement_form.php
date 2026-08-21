@@ -34,6 +34,18 @@ $isEdit = (bool)$item;
                         <img src="<?php echo announcement_image_stream_url((int)$item->id, true); ?>" alt="" class="notif-preview-img mt-2">
                         <?php endif; ?>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Video (opcional)</label>
+                        <input type="file" name="video" class="form-control" accept="video/mp4,video/webm">
+                        <div class="form-text">MP4 o WebM, máximo 50MB. Si el aviso tiene video, se muestra en lugar de la imagen.</div>
+                        <?php if (!empty($item->video_path)): ?>
+                        <video src="<?php echo announcement_video_stream_url((int)$item->id, true); ?>" class="announcement-modal-video mt-2" controls preload="metadata" style="max-width:320px;"></video>
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="checkbox" name="remove_video" value="1" id="removeVideoChk">
+                            <label class="form-check-label" for="removeVideoChk">Quitar el video actual</label>
+                        </div>
+                        <?php endif; ?>
+                    </div>
                     <div class="row g-2">
                         <div class="col-md-8">
                             <label class="form-label">URL del botón</label>

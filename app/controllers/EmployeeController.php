@@ -456,6 +456,7 @@ class EmployeeController {
                 'title' => notification_apply_placeholders($a->title, $userId),
                 'body' => notification_apply_placeholders($a->body, $userId),
                 'image_url' => !empty($a->image_path) ? announcement_image_stream_url((int)$a->id) : '',
+                'video_url' => (!empty($a->video_path) && function_exists('announcement_video_stream_url')) ? announcement_video_stream_url((int)$a->id) : '',
                 'link_url' => $a->link_url ?? '',
                 'link_label' => $a->link_label ?? 'Ver más',
             ];
@@ -570,6 +571,25 @@ class EmployeeController {
         header('Cache-Control: private, no-cache');
         readfile($absolute);
         exit;
+    }
+
+    public function streamAnnouncementVideo($id = 0) {
+        if (!$this->announcementDisplay) {
+            http_response_code(404);
+            exit;
+        }
+        $id = (int)$id;
+        $userId = (int)$_SESSION['user_id'];
+        if (!$this->announcementDisplay->userCanAccess($id, $userId)) {
+            http_response_code(403);
+            exit;
+        }
+        $row = (new Announcement())->getById($id);
+        if (!$row || empty($row->video_path)) {
+            http_response_code(404);
+            exit;
+        }
+        protected_upload_send($row->video_path, true, basename((string)$row->video_path));
     }
 
     public function streamAnnouncementImage($id = 0) {

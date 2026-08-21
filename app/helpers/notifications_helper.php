@@ -179,6 +179,11 @@ function announcement_image_stream_url($announcementId, $forAdmin = false) {
     return URLROOT . $prefix . (int)$announcementId;
 }
 
+function announcement_video_stream_url($announcementId, $forAdmin = false) {
+    $prefix = $forAdmin ? '/notificationsAdmin/streamAnnouncementVideo/' : '/employee/streamAnnouncementVideo/';
+    return URLROOT . $prefix . (int)$announcementId;
+}
+
 function pay_stub_upload_absolute_path($relativePath) {
     if (function_exists('protected_upload_absolute_path')) {
         return protected_upload_absolute_path($relativePath);

@@ -77,6 +77,29 @@ class NotificationsAdminController {
             }
             $data['image_path'] = $imagePath;
 
+            $videoPath = $item->video_path ?? null;
+            $uploadedVideo = $this->uploadAnnouncementVideo();
+            if ($uploadedVideo === false) {
+                redirect('notificationsAdmin/announcementForm/' . $id);
+            }
+            if ($uploadedVideo) {
+                if (!empty($videoPath)) {
+                    $oldVideo = pay_stub_upload_absolute_path($videoPath);
+                    if ($oldVideo && is_file($oldVideo)) {
+                        @unlink($oldVideo);
+                    }
+                }
+                $videoPath = $uploadedVideo;
+            }
+            if (!empty($_POST['remove_video']) && empty($uploadedVideo) && !empty($videoPath)) {
+                $oldVideo = pay_stub_upload_absolute_path($videoPath);
+                if ($oldVideo && is_file($oldVideo)) {
+                    @unlink($oldVideo);
+                }
+                $videoPath = null;
+            }
+            $data['video_path'] = $videoPath;
+
             if ($id) {
                 $this->announcementModel->update($id, $data, $targets);
                 $announcementId = $id;
@@ -376,6 +399,37 @@ class NotificationsAdminController {
         return 'announcements/' . $filename;
     }
 
+    /** Video del aviso (mp4/webm, máx. 50MB). null = sin archivo nuevo; false = error. */
+    private function uploadAnnouncementVideo() {
+        if (empty($_FILES['video']['name']) || ($_FILES['video']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        $valid = uploads_validate_uploaded_file(
+            $_FILES['video'],
+            ['mp4', 'webm'],
+            ['video/mp4', 'video/webm'],
+            50 * 1024 * 1024
+        );
+        if (!$valid['ok']) {
+            $_SESSION['flash_error'] = $valid['message'];
+            return false;
+        }
+        if (function_exists('uploads_ensure_private_directory')) {
+            uploads_ensure_private_directory('announcements');
+        }
+        $dir = APPROOT . '/../public/uploads/announcements';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            $_SESSION['flash_error'] = 'No se pudo crear la carpeta de avisos.';
+            return false;
+        }
+        $filename = 'annv-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $valid['ext'];
+        if (!move_uploaded_file($_FILES['video']['tmp_name'], $dir . '/' . $filename)) {
+            $_SESSION['flash_error'] = 'No se pudo guardar el video.';
+            return false;
+        }
+        return 'announcements/' . $filename;
+    }
+
     private function uploadPayStubFile($userId) {
         if (empty($_FILES['pay_stub_file']['name']) || ($_FILES['pay_stub_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $_SESSION['flash_error'] = 'Seleccioná un archivo PDF o imagen.';
@@ -441,6 +495,16 @@ class NotificationsAdminController {
             }
             $this->mailService->sendToUser($uid, $title, $body);
         }
+    }
+
+    public function streamAnnouncementVideo($id = 0) {
+        $id = (int)$id;
+        $row = $this->announcementModel->getById($id);
+        if (!$row || empty($row->video_path)) {
+            http_response_code(404);
+            exit;
+        }
+        protected_upload_send($row->video_path, true, basename((string)$row->video_path));
     }
 
     public function streamAnnouncementImage($id = 0) {
