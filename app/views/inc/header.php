@@ -631,12 +631,25 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
                     if ((int)$_co->id === $_activeCompanyId) $_activeGroup = $_co->organization_group ?? 'paviotti';
                     foreach ($_companyModel->getBranches((int)$_co->id, false) as $_branch) $_topbarBranches[] = $_branch;
                 }
+                // Suite P&M: el selector queda bloqueado al grupo del usuario logueado
+                // (RRHH de Moderna solo navega empresas/sucursales de Moderna, y viceversa).
+                $_orgLockedGroup = function_exists('org_locked_group') ? org_locked_group() : '';
+                if ($_orgLockedGroup !== '') {
+                    $_companySwitcher = array_values(array_filter($_companySwitcher, function ($_co) use ($_orgLockedGroup) {
+                        return ($_co->organization_group ?? 'paviotti') === $_orgLockedGroup;
+                    }));
+                    $_activeGroup = $_orgLockedGroup;
+                    $_topbarBranches = array_values(array_filter($_topbarBranches, function ($_b) use ($_companySwitcher) {
+                        foreach ($_companySwitcher as $_co) { if ((int)$_co->id === (int)$_b->company_id) return true; }
+                        return false;
+                    }));
+                }
             ?>
-            <?php if (!$_orgIsModerna): // Suite P&M: Moderna unifica — sin selectores de contexto; se vuelve desde el botón del sidebar ?>
-            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form topbar-context-form d-none d-xl-flex align-items-end me-1 me-md-2" title="Contexto operativo: grupo, empresa y sucursal">
+            <?php if ($_orgLockedGroup !== '' || !$_orgIsModerna): // sin grupo definido (sesión vieja), Moderna no muestra selectores ?>
+            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form topbar-context-form d-none d-xl-flex align-items-end me-1 me-md-2" title="Contexto operativo: empresa y sucursal de tu organización">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
-                <div><label class="topbar-company-label" for="topbarGroupSelect">Grupo</label><select id="topbarGroupSelect" class="form-select form-select-sm" data-context-group aria-label="Filtrar empresas por grupo"><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option></select></div>
+                <div><label class="topbar-company-label" for="topbarGroupSelect">Grupo</label><select id="topbarGroupSelect" class="form-select form-select-sm" data-context-group aria-label="Grupo de tu organización" <?php echo $_orgLockedGroup !== '' ? 'title="Tu organización"' : ''; ?>><?php if ($_orgLockedGroup !== ''): ?><option value="<?php echo $_orgLockedGroup; ?>" selected><?php echo strtoupper($_orgLockedGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?></option><?php else: ?><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option><?php endif; ?></select></div>
                 <div><label class="topbar-company-label" for="topbarCompanySelect">Empresa</label><select name="company_id" id="topbarCompanySelect" class="form-select form-select-sm" data-context-company aria-label="Cambiar empresa activa">
                     <?php if ($_activeCompanyId <= 0): ?>
                     <option value="" selected disabled>Elegir…</option>
@@ -659,7 +672,7 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
                     <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-context-form mobile-context-form">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
-                        <div><label class="form-label" for="mobileGroupSelect">Grupo</label><select id="mobileGroupSelect" class="form-select" data-context-group><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option></select></div>
+                        <div><label class="form-label" for="mobileGroupSelect">Grupo</label><select id="mobileGroupSelect" class="form-select" data-context-group><?php if ($_orgLockedGroup !== ''): ?><option value="<?php echo $_orgLockedGroup; ?>" selected><?php echo strtoupper($_orgLockedGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?></option><?php else: ?><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option><?php endif; ?></select></div>
                         <div><label class="form-label" for="mobileCompanySelect">Empresa</label><select name="company_id" id="mobileCompanySelect" class="form-select" data-context-company><?php foreach ($_companySwitcher as $_co): ?><option value="<?php echo (int)$_co->id; ?>" data-group="<?php echo htmlspecialchars($_co->organization_group ?? 'paviotti'); ?>" <?php echo (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_co->name); ?></option><?php endforeach; ?></select></div>
                         <div><label class="form-label" for="mobileBranchSelect">Sucursal</label><select name="branch_id" id="mobileBranchSelect" class="form-select" data-context-branch><option value="0">Todas</option><?php foreach ($_topbarBranches as $_branch): ?><option value="<?php echo (int)$_branch->id; ?>" data-company="<?php echo (int)$_branch->company_id; ?>" <?php echo (int)$_branch->id === $_activeBranchId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_branch->name); ?></option><?php endforeach; ?></select></div>
                         <button type="submit" class="btn btn-primary w-100"><i class="fas fa-check me-2"></i>Aplicar contexto</button>

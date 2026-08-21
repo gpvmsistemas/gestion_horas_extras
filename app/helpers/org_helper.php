@@ -34,6 +34,33 @@ function org_company_group_ready() {
     return $ready;
 }
 
+/** organization_group de una empresa puntual ('' si no se puede resolver). */
+function org_group_of_company($companyId) {
+    $companyId = (int)$companyId;
+    if ($companyId <= 0 || !org_company_group_ready()) {
+        return '';
+    }
+    static $cache = [];
+    if (!array_key_exists($companyId, $cache)) {
+        try {
+            $db = new Database();
+            $db->query('SELECT organization_group FROM companies WHERE id = ? LIMIT 1');
+            $row = $db->single([$companyId]);
+            $cache[$companyId] = $row ? (string)$row->organization_group : '';
+        } catch (Throwable $e) {
+            $cache[$companyId] = '';
+        }
+    }
+    return $cache[$companyId];
+}
+
+/** Grupo al que el usuario logueado queda bloqueado ('' si aún no está definido). */
+function org_locked_group() {
+    return (!empty($_SESSION['user_employee_group'])
+        && in_array($_SESSION['user_employee_group'], org_valid_groups(), true))
+        ? $_SESSION['user_employee_group'] : '';
+}
+
 /** organization_group de la empresa activa en sesión ('' si no se puede resolver). */
 function org_active_company_group() {
     $companyId = (int)($_SESSION['user_company_id'] ?? 0);

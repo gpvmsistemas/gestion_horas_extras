@@ -65,6 +65,15 @@ class AdminController {
         }
         csrf_verify();
         $companyId = (int)($_POST['company_id'] ?? 0);
+        // Suite P&M: el usuario RRHH solo puede navegar empresas de SU organización.
+        if (function_exists('org_locked_group') && org_locked_group() !== ''
+            && function_exists('org_group_of_company')) {
+            $targetGroup = org_group_of_company($companyId);
+            if ($targetGroup !== '' && $targetGroup !== org_locked_group()) {
+                $_SESSION['flash_error'] = 'Esa empresa pertenece a otra organización.';
+                redirect(admin_company_switch_return_path(trim($_POST['return_url'] ?? '')));
+            }
+        }
         if (!setAdminActiveCompany($companyId)) {
             $_SESSION['flash_error'] = 'Empresa no válida.';
         } else {

@@ -95,6 +95,11 @@ class LoginController {
         $_SESSION['user_role'] = $user->role;
         $_SESSION['user_company_id'] = $user->company_id;
         $_SESSION['user_area_id'] = !empty($user->area_id) ? (int)$user->area_id : null;
+        // Suite P&M: la organización del usuario define su vista (Paviotti o Moderna)
+        // y bloquea el selector de contexto a las empresas de su grupo.
+        $_SESSION['user_employee_group'] = (isset($user->employee_group)
+            && in_array($user->employee_group, ['paviotti', 'moderna'], true))
+            ? $user->employee_group : 'paviotti';
         $companyModel = new Company();
         $_SESSION['user_company_name'] = $companyModel->getNameById($user->company_id);
         $_SESSION['user_profile_picture'] = $user->profile_picture ?? 'default.png';
