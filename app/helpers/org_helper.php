@@ -54,6 +54,24 @@ function org_group_of_company($companyId) {
     return $cache[$companyId];
 }
 
+/** Ids de todas las empresas de un grupo organizacional. */
+function org_group_company_ids($group) {
+    if (!org_company_group_ready() || !in_array($group, org_valid_groups(), true)) {
+        return [];
+    }
+    static $cache = [];
+    if (!array_key_exists($group, $cache)) {
+        try {
+            $db = new Database();
+            $db->query('SELECT id FROM companies WHERE organization_group = ? ORDER BY id');
+            $cache[$group] = array_map(fn($r) => (int)$r->id, $db->resultSet([$group]));
+        } catch (Throwable $e) {
+            $cache[$group] = [];
+        }
+    }
+    return $cache[$group];
+}
+
 /** Grupo al que el usuario logueado queda bloqueado ('' si aún no está definido). */
 function org_locked_group() {
     return (!empty($_SESSION['user_employee_group'])

@@ -1151,14 +1151,19 @@ class AdminController {
         requireAdminOnly();
         $companyFilter = isset($_GET['company_id']) ? (int)$_GET['company_id'] : adminCompanyId();
         // Suite P&M: cada organización ve solo su nómina.
-        // Moderna => forzado a la empresa Moderna; Paviotti => la empresa Moderna
-        // queda excluida del listado y de los chips de filtro.
-        $modernaCompanyId = function_exists('org_moderna_company_id') ? org_moderna_company_id() : null;
+        // Moderna => por defecto TODO el grupo (MODERNA SRL, FRANCE SRL, FCF SAS);
+        // Paviotti => las empresas del grupo Moderna quedan excluidas del listado.
+        $modernaIds = function_exists('org_group_company_ids') ? org_group_company_ids('moderna') : [];
         $isModernaView = function_exists('org_is_moderna') && org_is_moderna();
-        if ($isModernaView && $modernaCompanyId) {
-            $companyFilter = $modernaCompanyId;
-        } elseif (!$isModernaView && $modernaCompanyId && $companyFilter === $modernaCompanyId) {
-            $companyFilter = (adminCompanyId() > 0 && adminCompanyId() !== $modernaCompanyId) ? adminCompanyId() : 0;
+        if ($isModernaView) {
+            if ($companyFilter > 0 && !in_array($companyFilter, $modernaIds, true)) {
+                $companyFilter = 0;
+            }
+            if (!isset($_GET['company_id'])) {
+                $companyFilter = 0; // vista unificada del grupo por defecto
+            }
+        } elseif (!empty($modernaIds) && in_array($companyFilter, $modernaIds, true)) {
+            $companyFilter = (adminCompanyId() > 0 && !in_array(adminCompanyId(), $modernaIds, true)) ? adminCompanyId() : 0;
         }
         $branchFilter = $companyFilter > 0 ? adminBranchId() : 0;
         $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null, $branchFilter);
@@ -1183,9 +1188,14 @@ class AdminController {
             $user->record_percent = (int)round($user->record_completed * 100 / max(1, $user->record_total));
         }
         $companies = $this->companyModel->getAllCompanies();
-        if (!$isModernaView && $modernaCompanyId) {
-            $users = array_values(array_filter($users, fn($u) => (int)($u->company_id ?? 0) !== $modernaCompanyId));
-            $companies = array_values(array_filter($companies, fn($c) => (int)$c->id !== $modernaCompanyId));
+        if ($isModernaView) {
+            if ($companyFilter === 0 && !empty($modernaIds)) {
+                $users = array_values(array_filter($users, fn($u) => in_array((int)($u->company_id ?? 0), $modernaIds, true)));
+            }
+            $companies = array_values(array_filter($companies, fn($c) => in_array((int)$c->id, $modernaIds, true)));
+        } elseif (!empty($modernaIds)) {
+            $users = array_values(array_filter($users, fn($u) => !in_array((int)($u->company_id ?? 0), $modernaIds, true)));
+            $companies = array_values(array_filter($companies, fn($c) => !in_array((int)$c->id, $modernaIds, true)));
         }
         $this->view('admin/users', [
             'users'          => $users,
