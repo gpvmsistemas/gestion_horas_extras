@@ -523,25 +523,36 @@ class RegistroHorasService {
      * sucursal — port del BRANCH_SCHEDULES hardcodeado de hoursapp, ahora en
      * company_branches.schedule_text (migration_horario_atencion_sucursal.sql).
      */
-    public function branchSchedules() {
-        static $map = null;
-        if ($map !== null) {
-            return $map;
+    public function branchSchedules(array $companyIds = []) {
+        $companyIds = array_values(array_filter(array_map('intval', $companyIds)));
+        static $cache = [];
+        $key = implode(',', $companyIds);
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
         }
         $map = [];
         try {
             $this->db->query("SHOW COLUMNS FROM company_branches LIKE 'schedule_text'");
             if (!$this->db->single()) {
-                return $map;
+                return $cache[$key] = $map;
             }
-            $this->db->query("SELECT name, schedule_text FROM company_branches WHERE is_active = 1 AND schedule_text IS NOT NULL AND schedule_text <> ''");
-            foreach ($this->db->resultSet() as $r) {
+            // Acotado a las empresas del grupo: sucursales homónimas de otra
+            // organización no deben pisar el horario de atención.
+            $sql = "SELECT name, schedule_text FROM company_branches
+                    WHERE is_active = 1 AND schedule_text IS NOT NULL AND schedule_text <> ''";
+            $params = [];
+            if (!empty($companyIds)) {
+                $sql .= ' AND company_id IN (' . implode(',', array_fill(0, count($companyIds), '?')) . ')';
+                $params = $companyIds;
+            }
+            $this->db->query($sql);
+            foreach ($this->db->resultSet($params ?: null) as $r) {
                 $map[$r->name] = $r->schedule_text;
             }
         } catch (Throwable $e) {
             $map = [];
         }
-        return $map;
+        return $cache[$key] = $map;
     }
 
     /**

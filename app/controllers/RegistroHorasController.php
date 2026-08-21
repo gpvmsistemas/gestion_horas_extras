@@ -123,7 +123,7 @@ class RegistroHorasController {
 
         if ($data['realMode']) {
             $data['psSections'] = $this->buildBranchSections($data, $rangeDates, $columns, $city, $branch);
-            $data['psSchedules'] = $this->service->branchSchedules();
+            $data['psSchedules'] = $this->service->branchSchedules($this->orgCompanyIds());
         } else {
             $data['psSections'] = $this->sampleBranchSections($data, $columns);
             $data['psSchedules'] = [];
@@ -258,10 +258,20 @@ class RegistroHorasController {
         // Feriados por sucursal y columna (regla de la suite: aplican a la
         // sucursal, no a la ciudad "de casa" del empleado como el canónico).
         $holCols = [];
+        $groupCompanyIds = $this->orgCompanyIds();
         foreach ($sections as $bName => $rows) {
             foreach ($columns as $key => $col) {
                 foreach ($col['dates'] as $d) {
-                    $n = $this->service->blockHolidayName($holidayCtx, $d, (int)adminCompanyId(), null, $bName);
+                    // Feriados fijos de CUALQUIER sociedad del grupo (los chips
+                    // de extras evalúan por la empresa de cada empleado; la
+                    // columna se tiñe si el feriado aplica a alguna).
+                    $n = null;
+                    foreach ($groupCompanyIds as $cid) {
+                        $n = $this->service->blockHolidayName($holidayCtx, $d, (int)$cid, null, $bName);
+                        if ($n !== null) {
+                            break;
+                        }
+                    }
                     if ($n !== null) {
                         $holCols[$bName][$key] = $n . ' (' . date('d/m', strtotime($d)) . ')';
                         break;
@@ -1082,15 +1092,29 @@ class RegistroHorasController {
         $from = (string)($_GET['from'] ?? '');
         $to = (string)($_GET['to'] ?? '');
         if (!$this->validDate($from) || !$this->validDate($to)) {
-            // Ventana por defecto: 6 meses hacia atrás y 6 hacia adelante.
-            $from = date('Y-m-01', strtotime('-6 months'));
-            $to = date('Y-m-t', strtotime('+6 months'));
+            // Ventana por defecto: 6 meses hacia atrás y 6 hacia adelante,
+            // ANCLADA al primer día del mes — strtotime('-6 months') directo
+            // desborda de mes los días 29-31 y desalinea con el cliente.
+            $base = strtotime(date('Y-m-01'));
+            $from = date('Y-m-01', strtotime('-6 months', $base));
+            $to = date('Y-m-t', strtotime('+6 months', $base));
         }
         if ($from > $to || (strtotime($to) - strtotime($from)) > 550 * 86400) {
             $fail('rango');
         }
         $companyIds = $this->orgCompanyIds();
-        $dates = $this->service->datesWithHours($companyIds, $branch, $from, $to);
+        if ($this->staffScopeApplies()) {
+            // Encargados/supervisores: los conteos también respetan su
+            // sub-alcance (mismo criterio que la verificación del borrado).
+            $blocks = $this->service->findWorkBlocksByCompanies($companyIds, $from, $to, $branch);
+            $blocks = $this->restrictRowsToStaffScope($blocks, 'user_id');
+            $dates = [];
+            foreach ($blocks as $b) {
+                $dates[$b->schedule_date] = ($dates[$b->schedule_date] ?? 0) + 1;
+            }
+        } else {
+            $dates = $this->service->datesWithHours($companyIds, $branch, $from, $to);
+        }
         $ctx = $this->service->buildHolidayContext($companyIds, $from, $to);
         $holidays = [];
         $cursor = $from;
