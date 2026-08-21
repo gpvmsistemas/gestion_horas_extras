@@ -62,7 +62,19 @@ class Core {
      */
     public function getUrl(){
         if (!isset($_GET['url'])) {
-            return [];
+            $pathInfo = (string)($_SERVER['PATH_INFO'] ?? '');
+            if ($pathInfo === '') {
+                $script = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? ''));
+                $req = str_replace('\\', '/', (string)(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: ''));
+                if ($script !== '' && strpos($req, $script) === 0) {
+                    $pathInfo = substr($req, strlen($script));
+                }
+            }
+            if ($pathInfo !== '' && $pathInfo !== '/') {
+                $_GET['url'] = ltrim($pathInfo, '/');
+            } else {
+                return [];
+            }
         }
         $url = rtrim((string)$_GET['url'], '/');
         if ($url === '') {

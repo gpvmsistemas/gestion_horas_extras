@@ -81,7 +81,7 @@
                                 <?php if ($url): ?><a href="<?php echo htmlspecialchars($url); ?>" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="fas fa-external-link-alt"></i></a><?php endif; ?>
                                 <form method="post" action="<?php echo URLROOT; ?>/trainingAdmin/deleteResource/<?php echo $cid; ?>/<?php echo (int)$r->id; ?>" class="d-inline" onsubmit="return confirm('Eliminar?')">
                                     <?php echo csrf_field(); ?>
-                                    <button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger" aria-label="Eliminar material" title="Eliminar material"><i class="fas fa-trash"></i></button>
                                 </form>
                             </td>
                         </tr>

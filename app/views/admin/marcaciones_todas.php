@@ -28,7 +28,7 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
     <div class="admin-page-brand">
         <div class="admin-page-icon"><i class="fas fa-fingerprint"></i></div>
         <div class="admin-page-meta">
-            <h2 class="page-title mb-0">Historial de fichadas</h2>
+            <h1 class="page-title mb-0">Historial de fichadas</h1>
             <p class="page-subtitle mb-0">Auditoría de reloj, persona recibida y vínculo con el sistema</p>
         </div>
     </div>
@@ -51,28 +51,28 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#eef2ff;color:#4338ca;"><i class="fas fa-user-friends"></i></div>
+        <div class="admin-kpi-icon marc-kpi-persons"><i class="fas fa-user-friends"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)($data['stats']['persons'] ?? 0); ?></div>
             <div class="admin-kpi-label">Personas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#d1fae5;color:#065f46;"><i class="fas fa-sign-in-alt"></i></div>
+        <div class="admin-kpi-icon marc-kpi-in"><i class="fas fa-sign-in-alt"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['entrada']; ?></div>
             <div class="admin-kpi-label">Entradas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#fce4ec;color:#c2185b;"><i class="fas fa-sign-out-alt"></i></div>
+        <div class="admin-kpi-icon marc-kpi-out"><i class="fas fa-sign-out-alt"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['salida']; ?></div>
             <div class="admin-kpi-label">Salidas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#fff3cd;color:#8a5600;"><i class="fas fa-user-slash"></i></div>
+        <div class="admin-kpi-icon marc-kpi-unmapped"><i class="fas fa-user-slash"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['unmapped']; ?></div>
             <div class="admin-kpi-label">Sin mapear</div>
@@ -80,7 +80,8 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
     </div>
 </div>
 
-<div class="admin-toolbar mb-3">
+<div class="admin-toolbar marc-filter-panel mb-3">
+    <div class="marc-filter-heading"><div><span class="admin-section-eyebrow">Búsqueda avanzada</span><strong>Filtros de auditoría</strong></div><i class="fas fa-sliders-h"></i></div>
     <form method="get" action="<?php echo URLROOT; ?>/admin/marcacionesTodas" class="w-100">
         <input type="hidden" name="view" value="<?php echo htmlspecialchars($viewMode); ?>">
         <div class="row g-2 align-items-end">

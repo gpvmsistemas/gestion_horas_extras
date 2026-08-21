@@ -68,7 +68,13 @@ class AdminController {
         if (!setAdminActiveCompany($companyId)) {
             $_SESSION['flash_error'] = 'Empresa no válida.';
         } else {
-            $_SESSION['flash_success'] = 'Empresa activa actualizada.';
+            $branchId = (int)($_POST['branch_id'] ?? 0);
+            if ($branchId > 0 && !$this->companyModel->getBranchByIdForCompany($branchId, $companyId, true)) {
+                $_SESSION['flash_error'] = 'La sucursal no pertenece a la empresa seleccionada.';
+            } else {
+                $_SESSION['admin_branch_id'] = $branchId;
+                $_SESSION['flash_success'] = $branchId > 0 ? 'Empresa y sucursal activas actualizadas.' : 'Empresa activa actualizada.';
+            }
         }
         $return = trim($_POST['return_url'] ?? '');
         redirect(admin_company_switch_return_path($return));
@@ -504,7 +510,14 @@ class AdminController {
      * Detalle planificado vs fichado (enlace desde dashboard).
      */
     public function attendance() {
-        $query = $_GET;
+        $query = array_filter([
+            'date' => trim((string)($_GET['date'] ?? '')),
+            'status' => trim((string)($_GET['status'] ?? '')),
+            'branch_id' => max(0, (int)($_GET['branch_id'] ?? 0)),
+            'user_id' => max(0, (int)($_GET['user_id'] ?? 0)),
+        ], static function ($value) {
+            return $value !== '' && $value !== 0;
+        });
         redirect('admin/controlAsistencia' . (!empty($query) ? '?' . http_build_query($query) : ''));
     }
 
@@ -981,6 +994,7 @@ class AdminController {
         $this->view('admin/companies', [
             'companies' => $companies,
             'policy_templates_ready' => (new AccessControl())->isReady(),
+            'organization_group_ready' => $this->companyModel->organizationGroupReady(),
             'location_ready' => $this->companyModel->locationReady(),
             'show_overtime_column' => $this->companyModel->hasShowOvertimeColumn(),
             'show_cp_extras_column' => $this->companyModel->hasShowCpExtrasColumn(),
@@ -1072,7 +1086,8 @@ class AdminController {
             redirect('admin/companies');
         }
 
-        $companyId = $this->companyModel->createCompany($companyName);
+        $organizationGroup = Company::normalizeOrganizationGroup($_POST['organization_group'] ?? 'paviotti');
+        $companyId = $this->companyModel->createCompany($companyName, $organizationGroup);
         if($companyId){
             $sourceCompanyId = (int)($_POST['policy_source_company_id'] ?? 0);
             $access = new AccessControl();
@@ -1125,8 +1140,9 @@ class AdminController {
 
     public function users() {
         requireAdminOnly();
-        $companyFilter = isset($_GET['company_id']) ? (int)$_GET['company_id'] : 0;
-        $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null);
+        $companyFilter = isset($_GET['company_id']) ? (int)$_GET['company_id'] : adminCompanyId();
+        $branchFilter = $companyFilter > 0 ? adminBranchId() : 0;
+        $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null, $branchFilter);
         $recordReady = $this->employeeRecordModel->isReady();
         $recordMetadata = $recordReady ? $this->employeeRecordModel->getUserListMetadata($companyFilter > 0 ? $companyFilter : null) : [];
         foreach ($users as $user) {
@@ -1152,6 +1168,8 @@ class AdminController {
             'users'          => $users,
             'companies'      => $companies,
             'company_filter' => $companyFilter,
+            'branch_filter'  => $branchFilter,
+            'active_branch'  => $branchFilter > 0 ? $this->companyModel->getBranchByIdForCompany($branchFilter, $companyFilter, true) : null,
             'employee_record_ready' => $recordReady,
         ]);
     }
@@ -2223,6 +2241,17 @@ class AdminController {
             $allEntries = array_merge($allEntries, $month2_entries);
         }
 
+        // El tablero muestra una sede, pero el límite semanal es del empleado:
+        // se calcula también el total consolidado de todas sus sucursales.
+        $allCompanyEntries = $allEntries;
+        if ($branchId > 0) {
+            $allCompanyEntries = $this->workScheduleModel->getScheduleEntriesForPeriod($companyId, $month1_start, $month1_end);
+            if ($month1_start != $month2_start) {
+                $allCompanyEntries = array_merge($allCompanyEntries,
+                    $this->workScheduleModel->getScheduleEntriesForPeriod($companyId, $month2_start, $month2_end));
+            }
+        }
+
         $holidays = array();
         foreach($holidaysData as $h) { $holidays[$h->holiday_date] = true; }
 
@@ -2238,6 +2267,7 @@ class AdminController {
 
         $schedules = array();
         $weekly_totals = array();
+        $weekly_branch_totals = array();
         $monthly_totals = array();
         $shiftsById = array();
         foreach($shifts as $s){ $shiftsById[$s->id] = $s; }
@@ -2246,6 +2276,7 @@ class AdminController {
         $month2_num = (int)date('m', strtotime($weekEndDate));
         foreach($users as $user) { 
             $weekly_totals[$user->id] = 0;
+            $weekly_branch_totals[$user->id] = 0;
             $monthly_totals[$user->id][$month1_num] = 0;
             if ($month1_num != $month2_num) {
                 $monthly_totals[$user->id][$month2_num] = 0;
@@ -2272,17 +2303,33 @@ class AdminController {
                 $monthly_totals[$entry->user_id][$entry_month] += $hours;
             }
             if ($entry->schedule_date >= $weekStartDate && $entry->schedule_date <= $weekEndDate) {
-                if (isset($weekly_totals[$entry->user_id])) {
-                    $weekly_totals[$entry->user_id] += $hours;
+                if (isset($weekly_branch_totals[$entry->user_id])) {
+                    $weekly_branch_totals[$entry->user_id] += $hours;
                 }
             }
+        }
+
+        foreach ($allCompanyEntries as $entry) {
+            if ($entry->schedule_date < $weekStartDate || $entry->schedule_date > $weekEndDate
+                || !isset($weekly_totals[$entry->user_id])) {
+                continue;
+            }
+            $hours = 0;
+            if ($entry->type == 'shift' && !empty($entry->shift_id) && isset($shiftsById[$entry->shift_id])) {
+                $hours = $shiftsById[$entry->shift_id]->total_hours;
+            } elseif (($entry->type == 'custom' || $entry->type == 'overtime') && !empty($entry->start_time) && !empty($entry->end_time)) {
+                $start = strtotime($entry->start_time); $end = strtotime($entry->end_time);
+                if ($end < $start) { $end += 24 * 3600; }
+                $hours = ($end - $start) / 3600;
+            }
+            $weekly_totals[$entry->user_id] += $hours;
         }
 
         $overtimePlanner = function_exists('overtime_staff_can_view') && overtime_staff_can_view($companyId);
 
         $data = array(
             'users' => $users, 'shifts' => $shifts, 'week_dates' => $week_dates,
-            'schedules' => $schedules, 'weekly_totals' => $weekly_totals, 'monthly_totals' => $monthly_totals, 
+            'schedules' => $schedules, 'weekly_totals' => $weekly_totals, 'weekly_branch_totals' => $weekly_branch_totals, 'monthly_totals' => $monthly_totals,
             'holidays' => $holidays, 'requests' => $requests,
             'nombres_mes' => $nombres_mes, 'month1_num' => $month1_num, 'month2_num' => $month2_num,
             'current_week_string' => $current_week_string,

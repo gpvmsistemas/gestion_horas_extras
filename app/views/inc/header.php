@@ -549,24 +549,51 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
             </form>
             <?php endif; endif; ?>
             <?php if (hasRole('admin')):
-                $_companySwitcher = (new Company())->getAllCompanies();
+                $_companyModel = new Company();
+                $_companySwitcher = $_companyModel->getAllCompanies();
                 $_activeCompanyId = (int)($_SESSION['user_company_id'] ?? 0);
+                $_activeBranchId = function_exists('adminBranchId') ? adminBranchId() : 0;
+                $_activeGroup = 'paviotti';
+                $_topbarBranches = [];
+                foreach ($_companySwitcher as $_co) {
+                    if ((int)$_co->id === $_activeCompanyId) $_activeGroup = $_co->organization_group ?? 'paviotti';
+                    foreach ($_companyModel->getBranches((int)$_co->id, false) as $_branch) $_topbarBranches[] = $_branch;
+                }
             ?>
-            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form d-flex align-items-center me-1 me-md-2" title="Empresa activa en todo el panel">
+            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form topbar-context-form d-none d-xl-flex align-items-end me-1 me-md-2" title="Contexto operativo: grupo, empresa y sucursal">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
-                <label class="topbar-company-label text-muted small me-1 mb-0" for="topbarCompanySelect">Empresa activa</label>
-                <select name="company_id" id="topbarCompanySelect" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Cambiar empresa activa">
+                <div><label class="topbar-company-label" for="topbarGroupSelect">Grupo</label><select id="topbarGroupSelect" class="form-select form-select-sm" data-context-group aria-label="Filtrar empresas por grupo"><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option></select></div>
+                <div><label class="topbar-company-label" for="topbarCompanySelect">Empresa</label><select name="company_id" id="topbarCompanySelect" class="form-select form-select-sm" data-context-company aria-label="Cambiar empresa activa">
                     <?php if ($_activeCompanyId <= 0): ?>
                     <option value="" selected disabled>Elegir…</option>
                     <?php endif; ?>
                     <?php foreach ($_companySwitcher as $_co): ?>
-                    <option value="<?php echo (int)$_co->id; ?>" <?php echo (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>>
+                    <option value="<?php echo (int)$_co->id; ?>" data-group="<?php echo htmlspecialchars($_co->organization_group ?? 'paviotti'); ?>" <?php echo (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>>
                         <?php echo htmlspecialchars($_co->name); ?>
                     </option>
                     <?php endforeach; ?>
-                </select>
+                </select></div>
+                <div><label class="topbar-company-label" for="topbarBranchSelect">Sucursal</label><select name="branch_id" id="topbarBranchSelect" class="form-select form-select-sm" data-context-branch aria-label="Filtrar por sucursal"><option value="0">Todas</option><?php foreach ($_topbarBranches as $_branch): ?><option value="<?php echo (int)$_branch->id; ?>" data-company="<?php echo (int)$_branch->company_id; ?>" <?php echo (int)$_branch->id === $_activeBranchId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_branch->name); ?></option><?php endforeach; ?></select></div>
+                <button type="submit" class="btn btn-sm btn-primary topbar-context-apply" aria-label="Aplicar contexto"><i class="fas fa-check"></i></button>
             </form>
+            <div class="dropdown topbar-mobile-context d-xl-none">
+                <button type="button" class="topbar-mobile-context-btn dropdown-toggle" id="mobileContextButton" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Cambiar grupo, empresa o sucursal">
+                    <i class="fas fa-building"></i><span class="d-none d-sm-inline">Contexto</span>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end topbar-mobile-context-menu" aria-labelledby="mobileContextButton">
+                    <div class="mobile-context-head"><span><i class="fas fa-sliders-h"></i></span><div><strong>Contexto de trabajo</strong><small><?php echo htmlspecialchars($_activeGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?> · <?php echo htmlspecialchars($_brandName); ?></small></div></div>
+                    <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-context-form mobile-context-form">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                        <div><label class="form-label" for="mobileGroupSelect">Grupo</label><select id="mobileGroupSelect" class="form-select" data-context-group><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option></select></div>
+                        <div><label class="form-label" for="mobileCompanySelect">Empresa</label><select name="company_id" id="mobileCompanySelect" class="form-select" data-context-company><?php foreach ($_companySwitcher as $_co): ?><option value="<?php echo (int)$_co->id; ?>" data-group="<?php echo htmlspecialchars($_co->organization_group ?? 'paviotti'); ?>" <?php echo (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_co->name); ?></option><?php endforeach; ?></select></div>
+                        <div><label class="form-label" for="mobileBranchSelect">Sucursal</label><select name="branch_id" id="mobileBranchSelect" class="form-select" data-context-branch><option value="0">Todas</option><?php foreach ($_topbarBranches as $_branch): ?><option value="<?php echo (int)$_branch->id; ?>" data-company="<?php echo (int)$_branch->company_id; ?>" <?php echo (int)$_branch->id === $_activeBranchId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_branch->name); ?></option><?php endforeach; ?></select></div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-check me-2"></i>Aplicar contexto</button>
+                    </form>
+                </div>
+            </div>
+            <script>(()=>{document.querySelectorAll('.topbar-context-form').forEach(form=>{const group=form.querySelector('[data-context-group]'),company=form.querySelector('[data-context-company]'),branch=form.querySelector('[data-context-branch]');if(!group||!company||!branch)return;const sync=()=>{const g=group.value;[...company.options].forEach(o=>{if(!o.value)return;const visible=o.dataset.group===g;o.hidden=!visible;o.disabled=!visible;});if(!company.selectedOptions.length||company.selectedOptions[0].disabled){const first=[...company.options].find(o=>o.value&&!o.disabled);if(first)company.value=first.value;}const c=company.value;[...branch.options].forEach(o=>{if(!o.value)return;const visible=o.dataset.company===c;o.hidden=!visible;o.disabled=!visible;});if(!branch.selectedOptions.length||branch.selectedOptions[0].disabled)branch.value='0';};group.addEventListener('change',sync);company.addEventListener('change',sync);sync();});})();</script>
             <div class="dropdown topbar-notify">
                 <button type="button"
                         class="topbar-notify-btn dropdown-toggle<?php echo $_adminNotifyTotalCount > 0 ? ' has-alerts' : ''; ?>"

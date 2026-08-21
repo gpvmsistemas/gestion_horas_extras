@@ -177,3 +177,17 @@ php scripts/process_hr_expirations.php
 ```
 
 Rollback: restaurar el dump previo. No se provee un SQL destructivo porque los dominios contienen constancias, custodias y auditoría que no deben perderse.
+
+## Catálogo ampliado de obras sociales y prepagas (2026-08)
+
+Archivo: `migration_health_insurers_catalog.sql`.
+
+Precarga las 25 coberturas comerciales solicitadas para el legajo digital. Es repetible: reactiva y actualiza registros existentes sin duplicarlos. Requiere haber aplicado previamente `migration_employee_record_complete.sql`.
+
+Aplicación local recomendada:
+
+```powershell
+php scripts/apply_health_insurers_catalog.php
+```
+
+Los nombres cargados son referencias comerciales. RR. HH. debe validar razón social, CUIT y código oficial antes de utilizarlos para derivación de aportes.

@@ -2,6 +2,7 @@
 require APPROOT . '/views/inc/header.php';
 $viewData=$data??[]; $users=$viewData['users']??[]; $companies=$viewData['companies']??[];
 $companyFilter=(int)($viewData['company_filter']??0); $recordReady=!empty($viewData['employee_record_ready']);
+$branchFilter=(int)($viewData['branch_filter']??0); $activeBranch=$viewData['active_branch']??null;
 $totalUsers=count($users); $accessActive=count(array_filter($users,fn($u)=>(int)$u->is_active===1));
 $laborActive=count(array_filter($users,fn($u)=>($u->employment_status??'')==='activo'));
 $incomplete=$recordReady?count(array_filter($users,fn($u)=>(int)($u->record_percent??0)<70)):0;
@@ -20,6 +21,7 @@ $workModeLabels=['presencial'=>'Presencial','hibrido'=>'Híbrido','remoto'=>'Rem
     </div>
 </div>
 <?php if(!$recordReady): ?><div class="alert alert-warning d-flex align-items-center gap-2" role="status"><i class="fas fa-triangle-exclamation"></i><div>El listado funciona en modo compatible. Ejecutá <code>migration_employee_record_complete.sql</code> para habilitar puesto, estado laboral y completitud.</div></div><?php endif; ?>
+<?php if ($activeBranch): ?><div class="alert alert-info d-flex align-items-center gap-2" role="status"><i class="fas fa-store"></i><div>Mostrando personas asignadas a la sucursal <strong><?php echo htmlspecialchars($activeBranch->name); ?></strong>.</div></div><?php endif; ?>
 
 <div class="admin-kpi-grid users-kpi-grid">
     <div class="admin-kpi-card"><div class="admin-kpi-icon is-total"><i class="fas fa-id-badge"></i></div><div><div class="admin-kpi-value"><?php echo $totalUsers; ?></div><div class="admin-kpi-label">Personas</div></div></div>

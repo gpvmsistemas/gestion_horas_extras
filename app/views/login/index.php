@@ -2,17 +2,17 @@
 require APPROOT . '/views/inc/header.php'; 
 ?>
 
-<div class="card shadow-lg" style="width:100%;max-width:420px;border-top:4px solid var(--clr-primary,#e91e8c);">
+<div class="card login-card">
     <div class="card-body p-4 p-sm-5">
 
         <!-- Logo / ícono -->
         <div class="text-center mb-4 login-brand-block">
-            <img src="<?php echo URLROOT; ?>/img/logo-paviotti.png"
-                 alt="<?php echo htmlspecialchars(SITENAME); ?>"
+            <img src="<?php echo URLROOT; ?>/img/pym.png"
+                 alt="Identidad visual de RRHH"
                  class="login-brand-logo mb-3"
-                 width="88"
-                 height="88">
-            <h1 class="h2 fw-bold mb-0 login-brand-title"><?php echo htmlspecialchars(SITENAME); ?></h1>
+                 width="246"
+                 height="112">
+            <h1 class="h2 fw-bold mb-0 login-brand-title">RRHH</h1>
             <p class="text-muted small mt-1">Gestión de personal y RRHH</p>
         </div>
 

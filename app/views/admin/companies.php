@@ -3,6 +3,7 @@ $showOtCol = !empty($data['show_overtime_column']);
 $showCpCol = !empty($data['show_cp_extras_column']);
 $locationReady = !empty($data['location_ready']);
 $policyTemplatesReady = !empty($data['policy_templates_ready']);
+$organizationGroupReady = !empty($data['organization_group_ready']);
 $companies = $data['companies'] ?? [];
 $locatedCompanies = count(array_filter($companies, function ($company) { return !empty($company->locality) && !empty($company->province); }));
 ?>
@@ -30,18 +31,21 @@ $locatedCompanies = count(array_filter($companies, function ($company) { return 
                 <?php foreach ($companies as $company):
                     $otLabel = $showOtCol && function_exists('company_overtime_label') ? company_overtime_label($company) : '';
                     $cpLabel = $showCpCol && function_exists('company_cp_extras_label') ? company_cp_extras_label($company) : '';
+                    $companyLogoUrl = function_exists('company_brand_logo_url') ? company_brand_logo_url((int)$company->id) : (URLROOT . '/img/logo-paviotti.png');
+                    $companyColor = function_exists('company_brand_color') ? company_brand_color((int)$company->id) : '#1d4ed8';
                     $stateClass = function ($label) {
                         if ($label === 'Sí') return 'is-yes';
                         if ($label === 'No') return 'is-no';
                         return 'is-neutral';
                     };
                 ?>
-                <article class="company-directory-card">
+                <article class="company-directory-card" style="--company-card-color:<?php echo htmlspecialchars($companyColor); ?>">
                     <div class="company-directory-top">
-                        <span class="company-directory-icon"><i class="fas fa-building"></i></span>
+                        <span class="company-directory-logo"><img src="<?php echo htmlspecialchars($companyLogoUrl); ?>" alt="Logo de <?php echo htmlspecialchars($company->name); ?>"></span>
                         <span class="company-directory-id">#<?php echo (int)$company->id; ?></span>
                     </div>
                     <h3><?php echo htmlspecialchars($company->name); ?></h3>
+                    <?php if ($organizationGroupReady): ?><span class="badge text-bg-light border align-self-start"><?php echo htmlspecialchars(Company::organizationGroupOptions()[$company->organization_group ?? 'paviotti'] ?? 'PAVIOTTI'); ?></span><?php endif; ?>
                     <?php if ($locationReady): ?>
                     <p class="company-directory-location <?php echo empty($company->locality) || empty($company->province) ? 'is-missing' : ''; ?>">
                         <i class="fas fa-map-marker-alt"></i>
@@ -77,6 +81,15 @@ $locatedCompanies = count(array_filter($companies, function ($company) { return 
                         <label for="company_name" class="form-label">Nombre de la empresa</label>
                         <div class="companies-input-wrap"><i class="fas fa-building"></i><input type="text" name="company_name" id="company_name" class="form-control" placeholder="Ej. Mi empresa" required></div>
                     </div>
+                    <?php if ($organizationGroupReady): ?>
+                    <div class="mb-3">
+                        <label for="organization_group" class="form-label">Grupo organizacional</label>
+                        <select name="organization_group" id="organization_group" class="form-select" required>
+                            <?php foreach (Company::organizationGroupOptions() as $groupKey => $groupLabel): ?><option value="<?php echo htmlspecialchars($groupKey); ?>"><?php echo htmlspecialchars($groupLabel); ?></option><?php endforeach; ?>
+                        </select>
+                        <div class="form-text">Define si la empresa pertenece al grupo PAVIOTTI o MODERNA.</div>
+                    </div>
+                    <?php endif; ?>
                     <?php if ($policyTemplatesReady): ?>
                     <div class="mb-3">
                         <label for="policy_source_company_id" class="form-label">Permisos iniciales</label>

@@ -209,6 +209,7 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
 }
 .hours-summary { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .hours-summary .badge { font-size: .78rem; padding: .35em .65em; font-weight: 600; letter-spacing: .01em; }
+.hours-summary .weekly-gap { white-space: nowrap; }
 .day-cell.day-over-limit:not(.is-editing) {
     background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%) !important;
     box-shadow: inset 0 0 0 2px #fb923c;
@@ -454,10 +455,20 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
                     <tbody>
                         <?php foreach($data['users'] as $user):
                             $weekly_total = $data['weekly_totals'][$user->id];
+                            $branch_total = $data['weekly_branch_totals'][$user->id] ?? $weekly_total;
                             $limit        = $user->weekly_hour_limit;
                             $badge_class  = 'bg-primary';
+                            $gap_class = 'bg-success';
+                            $gap_label = 'Meta cumplida';
                             if ($limit > 0 && $weekly_total > $limit)         { $badge_class = 'bg-danger'; }
                             elseif ($limit > 0 && $weekly_total > $limit*0.9) { $badge_class = 'bg-warning text-dark'; }
+                            if ($limit > 0 && $weekly_total < $limit) {
+                                $gap_class = 'bg-warning text-dark';
+                                $gap_label = 'Faltan: ' . number_format($limit - $weekly_total, 1) . ' hs';
+                            } elseif ($limit > 0 && $weekly_total > $limit) {
+                                $gap_class = 'bg-danger';
+                                $gap_label = 'Excede: ' . number_format($weekly_total - $limit, 1) . ' hs';
+                            }
                         ?>
                         <tr data-user-row-id="<?php echo $user->id; ?>">
                             <td class="user-col">
@@ -465,9 +476,16 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
                                 <div class="hours-summary">
                                     <span class="badge <?php echo $badge_class; ?> weekly-total"
                                                                                     title="L&iacute;mite: <?php echo $limit; ?> hs"
-                                                                                    data-weekly-limit="<?php echo (float)$limit; ?>">
-                                        Sem: <?php echo number_format($weekly_total, 1); ?> hs
+                                                                                    data-weekly-limit="<?php echo (float)$limit; ?>"
+                                                                                    data-weekly-offset="<?php echo (float)($weekly_total - $branch_total); ?>">
+                                        Total: <?php echo number_format($weekly_total, 1); ?> / <?php echo number_format($limit, 1); ?> hs
                                     </span>
+                                    <?php if (!empty($data['branch_scope_ready'])): ?>
+                                    <span class="badge bg-info branch-weekly-total">Esta sede: <?php echo number_format($branch_total, 1); ?> hs</span>
+                                    <?php endif; ?>
+                                    <?php if ($limit > 0): ?>
+                                    <span class="badge <?php echo $gap_class; ?> weekly-gap" aria-live="polite"><?php echo $gap_label; ?></span>
+                                    <?php endif; ?>
                                     <span class="badge bg-info monthly-total-<?php echo $data['month1_num']; ?>">
                                         <?php echo $data['nombres_mes'][$data['month1_num']]; ?>: <?php echo number_format($data['monthly_totals'][$user->id][$data['month1_num']], 1); ?> hs
                                     </span>
@@ -897,6 +915,25 @@ function updateWeeklyBadgeState(badge, total) {
     }
 }
 
+function updateWeeklyGap(row, total) {
+    var badge = row.querySelector('.weekly-gap');
+    var weekly = row.querySelector('.weekly-total');
+    if (!badge || !weekly) return;
+    var limit = parseFloat(weekly.dataset.weeklyLimit || 0);
+    if (limit <= 0) return;
+    badge.className = 'badge weekly-gap';
+    if (total < limit) {
+        badge.textContent = 'Faltan: ' + (limit - total).toFixed(1) + ' hs';
+        badge.classList.add('bg-warning', 'text-dark');
+    } else if (total > limit) {
+        badge.textContent = 'Excede: ' + (total - limit).toFixed(1) + ' hs';
+        badge.classList.add('bg-danger');
+    } else {
+        badge.textContent = 'Meta cumplida';
+        badge.classList.add('bg-success');
+    }
+}
+
 function refreshRowTotals(row) {
     if (!row) return;
 
@@ -920,8 +957,14 @@ function refreshRowTotals(row) {
 
     var weeklyBadge = row.querySelector('.weekly-total');
     if (weeklyBadge) {
-        weeklyBadge.textContent = 'Sem: ' + weeklyTotal.toFixed(1) + ' hs';
-        updateWeeklyBadgeState(weeklyBadge, weeklyTotal);
+        var globalTotal = weeklyTotal + parseFloat(weeklyBadge.dataset.weeklyOffset || 0);
+        weeklyBadge.textContent = 'Total: ' + globalTotal.toFixed(1) + ' / ' + parseFloat(weeklyBadge.dataset.weeklyLimit || 0).toFixed(1) + ' hs';
+        updateWeeklyBadgeState(weeklyBadge, globalTotal);
+        updateWeeklyGap(row, globalTotal);
+    }
+    var branchBadge = row.querySelector('.branch-weekly-total');
+    if (branchBadge) {
+        branchBadge.textContent = 'Esta sede: ' + weeklyTotal.toFixed(1) + ' hs';
     }
 
     row.querySelectorAll('[class*="monthly-total-"]').forEach(function(badge) {

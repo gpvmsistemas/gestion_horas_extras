@@ -52,8 +52,32 @@ class Company {
         return $this->getIdByName($name);
     }
 
-    public function createCompany($name){
-        $this->db->query('INSERT INTO companies (name) VALUES (:name)');
+    public static function organizationGroupOptions() {
+        return ['paviotti' => 'PAVIOTTI', 'moderna' => 'MODERNA'];
+    }
+
+    public static function normalizeOrganizationGroup($group) {
+        $group = strtolower(trim((string)$group));
+        return array_key_exists($group, self::organizationGroupOptions()) ? $group : 'paviotti';
+    }
+
+    public function organizationGroupReady() {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try {
+            $this->db->query("SHOW COLUMNS FROM `companies` LIKE 'organization_group'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) { $ready = false; }
+        return $ready;
+    }
+
+    public function createCompany($name, $organizationGroup = 'paviotti'){
+        if ($this->organizationGroupReady()) {
+            $this->db->query('INSERT INTO companies (name, organization_group) VALUES (:name, :organization_group)');
+            $this->db->bind(':organization_group', self::normalizeOrganizationGroup($organizationGroup));
+        } else {
+            $this->db->query('INSERT INTO companies (name) VALUES (:name)');
+        }
         $this->db->bind(':name', $name);
         return $this->db->execute() ? (int)$this->db->lastInsertId() : 0;
     }

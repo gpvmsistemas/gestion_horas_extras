@@ -151,6 +151,10 @@ Reglas que deben preservarse al crear o modificar pantallas:
 
 - El selector del navbar representa la **empresa activa de todo el panel** y
   debe permanecer visible en desktop y mobile.
+- Para administradores, el selector superior es jerárquico: **grupo
+  organizacional → empresa → sucursal**. Elegir una sucursal deja el contexto
+  operativo en sesión y el listado de Usuarios muestra sólo las personas
+  asignadas a esa sede (incluye asignaciones múltiples).
 - La marca, el nombre del footer y el título de la pestaña se derivan del
   contexto activo cuando corresponde.
 - El logo y color de la empresa activa se resuelven desde `companies`; no usar
@@ -506,6 +510,12 @@ No se incluye un esquema completo porque las migraciones fuente están ausentes.
 Una empresa registrada en `companies` puede contener una o más unidades operativas en
 `company_branches`. En la interfaz se las llama **sucursales**, aunque también sirven
 para representar una **subempresa** que dependa operativamente de una empresa principal.
+
+Al crear una empresa desde `/admin/companies` se debe elegir su **grupo
+organizacional**: `PAVIOTTI` o `MODERNA`. El valor se guarda en
+`companies.organization_group`; es una clasificación de la empresa y no reemplaza el
+grupo histórico que pueda tener cada empleado. Para instalaciones existentes ejecutar
+`php scripts/apply_company_organization_group_migration.php`.
 
 ```text
 Empresa: Ecofarma

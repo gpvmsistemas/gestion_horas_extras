@@ -14,14 +14,14 @@ $modeLabels = function_exists('vacation_day_count_modes') ? vacation_day_count_m
     <div class="admin-page-brand">
         <div class="admin-page-icon"><i class="fas fa-umbrella-beach"></i></div>
         <div class="admin-page-meta">
-            <h2 class="page-title">Vacaciones pendientes</h2>
+            <h1 class="page-title">Vacaciones pendientes</h1>
             <p class="page-subtitle mb-0">Saldos consolidados de todas las empresas, con detalle por período.</p>
         </div>
     </div>
     <a href="<?php echo htmlspecialchars($csvUrl); ?>" class="btn btn-success btn-sm"><i class="fas fa-file-csv me-1"></i>Exportar CSV filtrado</a>
 </div>
 
-<div class="admin-kpi-grid mb-3" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));">
+<div class="admin-kpi-grid vac-report-kpi-grid mb-3">
     <?php foreach ([
         ['Empleados con saldo', $stats['employees_with_pending']],
         ['Días pendientes', vacation_format_days($stats['total_pending'])],
@@ -31,12 +31,13 @@ $modeLabels = function_exists('vacation_day_count_modes') ? vacation_day_count_m
         ['Sin convenio', $stats['without_agreement']],
         ['Sin liquidación ' . date('Y'), $stats['without_current_liquidation']],
     ] as $kpi): ?>
-    <div class="admin-kpi-card"><div><div class="admin-kpi-value"><?php echo htmlspecialchars((string)$kpi[1]); ?></div><div class="admin-kpi-label"><?php echo htmlspecialchars($kpi[0]); ?></div></div></div>
+    <div class="admin-kpi-card vac-report-kpi"><div class="vac-report-kpi-mark"></div><div><div class="admin-kpi-value"><?php echo htmlspecialchars((string)$kpi[1]); ?></div><div class="admin-kpi-label"><?php echo htmlspecialchars($kpi[0]); ?></div></div></div>
     <?php endforeach; ?>
 </div>
 
-<form method="get" action="<?php echo URLROOT; ?>/vacationAdmin/reports" class="card border shadow-sm mb-3">
-    <div class="card-body">
+<form method="get" action="<?php echo URLROOT; ?>/vacationAdmin/reports" class="admin-surface vac-report-filter mb-3">
+    <div class="admin-surface-head"><div><span class="admin-section-eyebrow">Consulta personalizada</span><h2 class="admin-surface-title mb-0"><i class="fas fa-sliders-h"></i> Filtros del reporte</h2></div><span class="small text-muted">Refiná los resultados por empleado, período o saldo</span></div>
+    <div class="admin-surface-body">
         <div class="row g-2">
             <div class="col-md-3"><label class="form-label small">Empresa</label><select name="company_id" class="form-select form-select-sm"><option value="0">Todas</option><?php foreach ($data['companies'] as $co): ?><option value="<?php echo (int)$co->id; ?>" <?php echo (int)$filters['company_id']===(int)$co->id?'selected':''; ?>><?php echo htmlspecialchars($co->name); ?></option><?php endforeach; ?></select></div>
             <div class="col-md-3"><label class="form-label small">Convenio</label><select name="agreement_id" class="form-select form-select-sm"><option value="0">Todos</option><?php foreach ($data['agreements'] as $ag): ?><option value="<?php echo (int)$ag->id; ?>" <?php echo (int)$filters['agreement_id']===(int)$ag->id?'selected':''; ?>><?php echo htmlspecialchars($ag->name); ?></option><?php endforeach; ?></select></div>
@@ -57,12 +58,12 @@ $modeLabels = function_exists('vacation_day_count_modes') ? vacation_day_count_m
 
 <div class="row g-3 mb-3">
     <?php foreach ([['Por empresa',$stats['by_company']],['Por convenio',$stats['by_agreement']]] as $group): ?>
-    <div class="col-lg-6"><div class="card border shadow-sm h-100"><div class="card-header"><strong><?php echo $group[0]; ?></strong></div><div class="card-body py-2"><?php foreach ($group[1] as $label=>$days): ?><div class="d-flex justify-content-between border-bottom py-1"><span><?php echo htmlspecialchars($label); ?></span><strong><?php echo vacation_format_days($days); ?> días</strong></div><?php endforeach; ?></div></div></div>
+    <div class="col-lg-6"><div class="admin-surface vac-report-summary h-100"><div class="admin-surface-head"><h2 class="admin-surface-title mb-0"><i class="fas fa-chart-pie"></i> <?php echo $group[0]; ?></h2></div><div class="admin-surface-body py-2"><?php foreach ($group[1] as $label=>$days): ?><div class="vac-report-summary-row"><span><?php echo htmlspecialchars($label); ?></span><strong><?php echo vacation_format_days($days); ?> días</strong></div><?php endforeach; ?></div></div></div>
     <?php endforeach; ?>
 </div>
 
-<div class="card border shadow-sm">
-    <div class="card-header d-flex justify-content-between"><strong><?php echo (int)$report['total']; ?> empleado(s)</strong><span class="small text-muted">Página <?php echo (int)$report['page']; ?></span></div>
+<div class="admin-surface vac-report-results">
+    <div class="admin-surface-head d-flex justify-content-between"><h2 class="admin-surface-title mb-0"><i class="fas fa-users"></i> <?php echo (int)$report['total']; ?> empleado(s)</h2><span class="badge bg-light text-dark border">Página <?php echo (int)$report['page']; ?></span></div>
     <div class="table-responsive"><table class="table table-hover mb-0 align-middle"><thead class="table-light"><tr><th>Empleado</th><th>Empresa / área</th><th>Convenio</th><th class="text-end">Histórico</th><th class="text-end">Actual</th><th class="text-end">Total</th><th>Antigüedad</th><th></th></tr></thead><tbody>
     <?php if (empty($report['rows'])): ?><tr><td colspan="8" class="text-center text-muted py-4">No hay resultados para los filtros elegidos.</td></tr><?php endif; ?>
     <?php foreach ($report['rows'] as $row): $details=$report['details'][(int)$row->user_id]??[]; ?>

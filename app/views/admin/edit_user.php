@@ -43,8 +43,7 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
                 <strong><?php echo htmlspecialchars($editUser->full_name); ?></strong>
                 <span class="edit-user-role-pill"><?php echo htmlspecialchars($editRoleLabel); ?></span>
                 <input type="file" name="profile_picture" id="profile_picture" accept="image/jpeg,image/png,image/webp"
-                       class="visually-hidden <?php echo isset($data['errors']['picture']) ? 'is-invalid' : ''; ?>"
-                       onchange="if(this.files[0]){document.getElementById('avatarPreview').src=URL.createObjectURL(this.files[0])}">
+                       class="visually-hidden <?php echo isset($data['errors']['picture']) ? 'is-invalid' : ''; ?>">
                 <label for="profile_picture" class="edit-user-upload-label"><i class="fas fa-camera"></i>Cambiar foto</label>
                 <small>JPG, PNG o WEBP · máximo 2 MB</small>
                 <?php if(isset($data['errors']['picture'])): ?>
@@ -268,5 +267,24 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
 </div>
 
 <?php require APPROOT . '/views/admin/partials/user_access_permissions.php'; ?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const pictureInput = document.getElementById('profile_picture');
+    const avatarPreview = document.getElementById('avatarPreview');
+    if (!pictureInput || !avatarPreview) return;
+
+    pictureInput.addEventListener('change', function () {
+        const file = this.files && this.files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+
+        const reader = new FileReader();
+        reader.addEventListener('load', function () {
+            if (typeof reader.result === 'string') avatarPreview.src = reader.result;
+        });
+        reader.readAsDataURL(file);
+    });
+});
+</script>
 
 <?php require APPROOT . '/views/inc/footer.php'; ?>

@@ -72,30 +72,30 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO collective_agreement_rules
     (agreement_id, min_months, max_months, days_entitled, day_count_mode,
      allows_split, allows_carryover, min_consecutive_days, notes)
-SELECT id, 0, 60, 14, 'calendar', 1, 1, 7, 'Hasta 5 anios inclusive' FROM collective_agreements WHERE code='CEC'
-UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 anios' FROM collective_agreements WHERE code='CEC'
-UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 anios' FROM collective_agreements WHERE code='CEC'
-UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 anios' FROM collective_agreements WHERE code='CEC'
+SELECT id, 0, 60, 14, 'calendar', 1, 1, 7, 'Hasta 5 años inclusive' FROM collective_agreements WHERE code='CEC'
+UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 años' FROM collective_agreements WHERE code='CEC'
+UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 años' FROM collective_agreements WHERE code='CEC'
+UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 años' FROM collective_agreements WHERE code='CEC'
 
-UNION ALL SELECT id, 0, 60, 17, 'calendar', 1, 1, 7, 'Hasta 5 anios inclusive' FROM collective_agreements WHERE code='FARMACIA-430-05'
-UNION ALL SELECT id, 61, 120, 26, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 anios' FROM collective_agreements WHERE code='FARMACIA-430-05'
-UNION ALL SELECT id, 121, 240, 35, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 anios' FROM collective_agreements WHERE code='FARMACIA-430-05'
-UNION ALL SELECT id, 241, NULL, 44, 'calendar', 1, 1, 7, 'Mas de 20 anios' FROM collective_agreements WHERE code='FARMACIA-430-05'
+UNION ALL SELECT id, 0, 60, 17, 'calendar', 1, 1, 7, 'Hasta 5 años inclusive' FROM collective_agreements WHERE code='FARMACIA-430-05'
+UNION ALL SELECT id, 61, 120, 26, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 años' FROM collective_agreements WHERE code='FARMACIA-430-05'
+UNION ALL SELECT id, 121, 240, 35, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 años' FROM collective_agreements WHERE code='FARMACIA-430-05'
+UNION ALL SELECT id, 241, NULL, 44, 'calendar', 1, 1, 7, 'Mas de 20 años' FROM collective_agreements WHERE code='FARMACIA-430-05'
 
-UNION ALL SELECT id, 0, 60, 14, 'business_mon_sat', 1, 1, 14, 'Hasta 5 anios inclusive; sabado habil' FROM collective_agreements WHERE code='SOECRA-761-19'
+UNION ALL SELECT id, 0, 60, 14, 'business_mon_sat', 1, 1, 14, 'Hasta 5 años inclusive; sabado habil' FROM collective_agreements WHERE code='SOECRA-761-19'
 UNION ALL SELECT id, 61, 120, 21, 'business_mon_sat', 1, 1, 14, 'Fraccion 14 + remanente 7' FROM collective_agreements WHERE code='SOECRA-761-19'
 UNION ALL SELECT id, 121, 240, 28, 'business_mon_sat', 1, 1, 14, 'Fracciones 14 + 14' FROM collective_agreements WHERE code='SOECRA-761-19'
 UNION ALL SELECT id, 241, NULL, 35, 'business_mon_sat', 1, 1, 14, 'Fracciones 14 + 14 + remanente 7' FROM collective_agreements WHERE code='SOECRA-761-19'
 
-UNION ALL SELECT id, 0, 60, 16, 'calendar', 1, 1, 7, 'Hasta 5 anios inclusive' FROM collective_agreements WHERE code='UTEDYC-2023'
-UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 anios' FROM collective_agreements WHERE code='UTEDYC-2023'
-UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 anios' FROM collective_agreements WHERE code='UTEDYC-2023'
-UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 anios' FROM collective_agreements WHERE code='UTEDYC-2023'
+UNION ALL SELECT id, 0, 60, 16, 'calendar', 1, 1, 7, 'Hasta 5 años inclusive' FROM collective_agreements WHERE code='UTEDYC-2023'
+UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 años' FROM collective_agreements WHERE code='UTEDYC-2023'
+UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 años' FROM collective_agreements WHERE code='UTEDYC-2023'
+UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 años' FROM collective_agreements WHERE code='UTEDYC-2023'
 
-UNION ALL SELECT id, 0, 60, 14, 'calendar', 1, 1, 7, 'Hasta 5 anios inclusive' FROM collective_agreements WHERE code='SANIDAD-122-75'
-UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 anios' FROM collective_agreements WHERE code='SANIDAD-122-75'
-UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 anios' FROM collective_agreements WHERE code='SANIDAD-122-75'
-UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 anios' FROM collective_agreements WHERE code='SANIDAD-122-75'
+UNION ALL SELECT id, 0, 60, 14, 'calendar', 1, 1, 7, 'Hasta 5 años inclusive' FROM collective_agreements WHERE code='SANIDAD-122-75'
+UNION ALL SELECT id, 61, 120, 21, 'calendar', 1, 1, 7, 'Mas de 5 y hasta 10 años' FROM collective_agreements WHERE code='SANIDAD-122-75'
+UNION ALL SELECT id, 121, 240, 28, 'calendar', 1, 1, 7, 'Mas de 10 y hasta 20 años' FROM collective_agreements WHERE code='SANIDAD-122-75'
+UNION ALL SELECT id, 241, NULL, 35, 'calendar', 1, 1, 7, 'Mas de 20 años' FROM collective_agreements WHERE code='SANIDAD-122-75'
 ON DUPLICATE KEY UPDATE
     max_months=VALUES(max_months), days_entitled=VALUES(days_entitled),
     day_count_mode=VALUES(day_count_mode), allows_split=VALUES(allows_split),

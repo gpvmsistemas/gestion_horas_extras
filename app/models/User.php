@@ -693,19 +693,30 @@ class User {
         return $this->db->resultSet();
     }
 
-    public function getAllUsersWithCompany($companyFilterId = null) {
+    public function getAllUsersWithCompany($companyFilterId = null, $branchId = 0) {
         $sql = '
             SELECT u.*, c.name AS company_name
             FROM users u
             LEFT JOIN companies c ON c.id = u.company_id
         ';
+        $branchFilter = (int)$branchId > 0 && (int)$companyFilterId > 0;
         if ($companyFilterId) {
             $sql .= ' WHERE u.company_id = :company_id';
+            if ($branchFilter) {
+                if ($this->isMultipleBranchAssignmentsReady()) {
+                    $sql .= ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)';
+                } elseif ($this->isBranchAssignmentReady()) {
+                    $sql .= ' AND u.branch_id = :branch_id';
+                }
+            }
         }
         $sql .= ' ORDER BY c.name ASC, u.full_name ASC';
         $this->db->query($sql);
         if ($companyFilterId) {
             $this->db->bind(':company_id', $companyFilterId);
+            if ($branchFilter && ($this->isMultipleBranchAssignmentsReady() || $this->isBranchAssignmentReady())) {
+                $this->db->bind(':branch_id', (int)$branchId);
+            }
         }
         return $this->db->resultSet();
     }

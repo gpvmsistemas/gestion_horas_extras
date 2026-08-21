@@ -27,6 +27,18 @@ function adminCompanyId() {
     return isset($_SESSION['user_company_id']) ? (int)$_SESSION['user_company_id'] : 0;
 }
 
+/** Sucursal operativa elegida dentro de la empresa activa (0 = todas). */
+function adminBranchId() {
+    $branchId = (int)($_SESSION['admin_branch_id'] ?? 0);
+    $companyId = adminCompanyId();
+    if ($branchId <= 0 || $companyId <= 0) return 0;
+    if (!(new Company())->getBranchByIdForCompany($branchId, $companyId, true)) {
+        unset($_SESSION['admin_branch_id']);
+        return 0;
+    }
+    return $branchId;
+}
+
 /**
  * Exige empresa en sesión; redirige si falta.
  */
@@ -63,6 +75,10 @@ function setAdminActiveCompany($companyId) {
     }
     $_SESSION['user_company_id'] = $companyId;
     $_SESSION['user_company_name'] = $companyModel->getNameById($companyId);
+    if ((int)($_SESSION['admin_branch_id'] ?? 0) > 0
+        && !$companyModel->getBranchByIdForCompany((int)$_SESSION['admin_branch_id'], $companyId, true)) {
+        unset($_SESSION['admin_branch_id']);
+    }
     return true;
 }
 

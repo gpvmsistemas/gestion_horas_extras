@@ -28,7 +28,7 @@ if ($branchesReady && $policyReady) {
     }
 }
 $savedLocalities = array_map(function ($branch) { return $branch->locality ?? ''; }, $branches);
-$localityOptions = array_values(array_filter(array_unique(array_merge(['Villa María', 'San Francisco'], $savedLocalities, [$location->locality ?? '']))));
+$localityOptions = array_values(array_filter(array_unique(array_merge(['Villa María', 'Villa Nueva', 'San Francisco'], $savedLocalities, [$location->locality ?? '']))));
 $provinceOptions = ['Córdoba'];
 
 function company_location_options($options, $selected, $placeholder) {
