@@ -5259,3 +5259,39 @@ body.org-moderna .db-emp-bar {
 body.org-moderna .db-dark-head {
     background: linear-gradient(135deg, #071a2b, #0a3d62) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Registro de Horas — calendario compartido entre "Por empleado" y la
+   vista previa en vivo de la Carga (tokens del tema activo).
+   ═══════════════════════════════════════════════════════════════════ */
+.rh-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.rh-cal-head { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--clr-admin-muted); text-align: center; padding: .2rem 0; }
+.rh-cal-day { min-height: 52px; border: 1px solid var(--clr-admin-border); border-radius: .55rem; padding: .3rem .45rem; font-size: .8rem; font-weight: 600; color: var(--clr-admin-text); background: #fff; transition: background .15s ease; }
+.rh-cal-day.is-empty { border: none; background: transparent; }
+.rh-cal-day.is-worked,
+.rh-cal-day.is-proposed { background: var(--clr-primary-l); border-color: rgba(var(--clr-primary-rgb), .35); color: var(--clr-primary-d); }
+.rh-cal-day.is-holiday { background: #fde2e2; border-color: rgba(239, 68, 68, .4); color: #b91c1c; }
+.rh-cal-day.is-status { background: #e5e7eb; border-color: #9ca3af; color: #4b5563; }
+.rh-cal-day.is-blocked { background: repeating-linear-gradient(45deg, #f1f5f9 0 6px, #e9edf2 6px 12px); color: var(--clr-admin-muted); }
+.rh-cal-day.has-conflict { outline: 2px dashed var(--clr-warning); outline-offset: -2px; }
+.rh-cal-day.is-today { box-shadow: 0 0 0 2px var(--clr-warning); }
+.rh-cal-day .rh-cal-hrs { display: block; font-size: .68rem; font-weight: 500; color: inherit; opacity: .8; }
+.rh-cal-day .rh-cal-ex { display: inline-block; font-size: .62rem; color: #7c4a03; background: #fdecc8; border-radius: .4rem; padding: 0 .25rem; margin-top: .1rem; }
+.rh-cal-day .rh-cal-ico { font-size: .6rem; margin-left: .2rem; }
+.rh-cal-day[data-date] { cursor: pointer; }
+.rh-cal-day:focus-visible { box-shadow: 0 0 0 .2rem rgba(var(--clr-primary-rgb), .18); border-color: var(--clr-primary); outline: none; }
+.rh-legend { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; font-size: .8rem; margin-top: .9rem; }
+.rh-legend span i { font-size: .6rem; margin-right: .3rem; }
+.rh-day-card { background: var(--page-bg); border-radius: .75rem; padding: .85rem 1rem; }
+.rh-day-card.is-holiday { border-left: 4px solid var(--clr-danger); }
+.rh-range-row { display: flex; align-items: center; justify-content: space-between; gap: .5rem; background: #fff; border: 1px solid var(--clr-admin-border); border-radius: .55rem; padding: .4rem .8rem; flex-wrap: wrap; }
+.rh-select-mode .rh-row-check { display: inline-block !important; }
+.rh-row-check { display: none; }
+.rh-live-month-title { font-weight: 700; font-size: .85rem; margin: .6rem 0 .35rem; color: var(--clr-admin-text); }
+.rh-live-chip { display: inline-flex; align-items: center; gap: .35rem; background: var(--page-bg); border: 1px solid var(--clr-admin-border); border-radius: .55rem; padding: .3rem .6rem; font-size: .8rem; font-weight: 600; }
+@media (min-width: 992px) {
+    .rh-live-sticky { position: sticky; top: calc(var(--th, 60px) + 1rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rh-cal-day { transition: none; }
+}

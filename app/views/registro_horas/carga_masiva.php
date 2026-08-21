@@ -155,11 +155,17 @@ $_conflictEmp  = $data['employees'][2] ?? null;
                         </thead>
                         <tbody>
                             <?php foreach ($data['employees'] as $emp):
-                                $blocked = $emp->state !== 'Activo'; ?>
+                                $blocked = $emp->state !== 'Activo';
+                                // Tras una verificación se respeta la selección hecha;
+                                // al entrar, todos marcados (el bloqueo por estado es
+                                // POR DÍA y automático: no excluye al empleado entero).
+                                $checked = $_req !== null
+                                    ? in_array($emp->id, $_req['employee_ids'], true)
+                                    : true; ?>
                             <tr class="<?php echo $blocked ? 'table-warning' : ''; ?>">
                                 <td>
                                     <input type="checkbox" class="form-check-input m-check-row" name="employee_ids[]"
-                                           value="<?php echo (int)$emp->id; ?>" <?php echo $blocked ? '' : 'checked'; ?>>
+                                           value="<?php echo (int)$emp->id; ?>" <?php echo $checked ? 'checked' : ''; ?>>
                                 </td>
                                 <td>
                                     <?php echo htmlspecialchars($emp->name); ?>
