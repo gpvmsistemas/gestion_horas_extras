@@ -152,8 +152,10 @@ class RegistroHorasController {
             $first = $month . '-01';
             $last = date('Y-m-t', strtotime($first));
             $blocksMap = $this->service->getBlocksForRange($data['selected']->id, $first, $last);
-            // Feriados resueltos por la sucursal del empleado (reglas por localidad de la suite).
-            $holidays = $this->service->getHolidaysInRange(adminCompanyId(), $first, $last, $data['selected']->branch_id ?? null);
+            // Feriados resueltos por la empresa y sucursal DEL EMPLEADO
+            // (el módulo es org-wide; la empresa activa no interviene).
+            $empCompanyId = (int)($data['selected']->company_id ?? 0) ?: (int)adminCompanyId();
+            $holidays = $this->service->getHolidaysInRange($empCompanyId, $first, $last, $data['selected']->branch_id ?? null);
             $data['records'] = $this->buildMonthRecords($data['org'], $blocksMap, $holidays);
         } else {
             $data['selected'] = $data['employees'][0];
@@ -313,16 +315,30 @@ class RegistroHorasController {
         ];
     }
 
-    /** Empleados activos reales de la empresa activa (null si el esquema no está migrado). */
+    /** Ids de empresas sobre las que opera el módulo: todo el grupo organizacional. */
+    private function orgCompanyIds(){
+        $ids = function_exists('org_group_company_ids') ? org_group_company_ids(org_current_group()) : [];
+        if (empty($ids)) {
+            $active = function_exists('adminCompanyId') ? (int)adminCompanyId() : 0;
+            $ids = $active > 0 ? [$active] : [];
+        }
+        return $ids;
+    }
+
+    /**
+     * Empleados activos reales de TODO el grupo (null si el esquema no está migrado).
+     * El Registro de Horas no distingue empresa: RRHH carga para cualquier
+     * sociedad de su organización.
+     */
     private function realEmployees(){
         if ($this->service === null) {
             return null;
         }
-        $companyId = function_exists('adminCompanyId') ? (int)adminCompanyId() : 0;
-        if ($companyId <= 0) {
+        $companyIds = $this->orgCompanyIds();
+        if (empty($companyIds)) {
             return null;
         }
-        $rows = $this->service->getActiveEmployees($companyId);
+        $rows = $this->service->getActiveEmployeesForCompanies($companyIds);
         if (function_exists('filterStaffRowsByUserArea')) {
             $rows = filterStaffRowsByUserArea($rows);
         }
@@ -332,15 +348,16 @@ class RegistroHorasController {
             $branch = !empty($u->branch_name) ? $u->branch_name
                 : (!empty($u->area_name) ? $u->area_name : ($companyName . ' (sin sucursal)'));
             return (object)[
-                'id'        => (int)$u->id,
-                'name'      => $u->full_name,
-                'full_name' => $u->full_name,
-                'branch'    => $branch,
-                'branch_id' => !empty($u->branch_id) ? (int)$u->branch_id : null,
-                'city'      => $branch,
-                'state'     => 'Activo',
-                'cajero'    => false,
-                'manager'   => false,
+                'id'         => (int)$u->id,
+                'name'       => $u->full_name,
+                'full_name'  => $u->full_name,
+                'branch'     => $branch,
+                'branch_id'  => !empty($u->branch_id) ? (int)$u->branch_id : null,
+                'company_id' => (int)($u->company_id ?? 0),
+                'city'       => $branch,
+                'state'      => 'Activo',
+                'cajero'     => false,
+                'manager'    => false,
             ];
         }, $rows);
     }
@@ -350,10 +367,12 @@ class RegistroHorasController {
         if (!$u || $u->role !== 'empleado' || (int)$u->is_active !== 1) {
             return null;
         }
-        if ((int)$u->company_id !== (int)adminCompanyId()) {
+        // Cualquier empresa del grupo organizacional del usuario logueado.
+        if (!in_array((int)$u->company_id, $this->orgCompanyIds(), true)) {
             return null;
         }
-        if (function_exists('supervisorCanAccessUser') && !supervisorCanAccessUser($u)) {
+        if (function_exists('isSupervisor') && isSupervisor()
+            && function_exists('supervisorCanAccessUser') && !supervisorCanAccessUser($u)) {
             return null;
         }
         return $u;
@@ -510,11 +529,21 @@ class RegistroHorasController {
     private function buildDuplicatePreview($targets, $srcMonday, $destMonday){
         $srcDays = $this->weekDays($srcMonday);
         $destDays = $this->weekDays($destMonday);
-        $companyId = (int)adminCompanyId();
-        $holidays = $this->service->getHolidaysInRange($companyId, $destDays[0], end($destDays));
 
         $rows = [];
+        $holidayCache = [];
         foreach ($targets as $emp) {
+            // Feriados por empresa/sucursal del empleado (org-wide, cacheado por combinación).
+            $hKey = (int)($emp->company_id ?? 0) . ':' . (int)($emp->branch_id ?? 0);
+            if (!isset($holidayCache[$hKey])) {
+                $holidayCache[$hKey] = $this->service->getHolidaysInRange(
+                    (int)($emp->company_id ?? 0) ?: (int)adminCompanyId(),
+                    $destDays[0],
+                    end($destDays),
+                    $emp->branch_id ?? null
+                );
+            }
+            $holidays = $holidayCache[$hKey];
             $srcMap = $this->service->getBlocksForRange($emp->id, $srcDays[0], end($srcDays));
             $classified = $this->service->classifyDates($emp->id, $destDays);
             foreach ($srcDays as $i => $srcDate) {

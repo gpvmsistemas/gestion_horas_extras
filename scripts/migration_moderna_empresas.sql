@@ -50,3 +50,10 @@ SET u.company_id = cb.company_id
 WHERE u.employee_group = 'moderna'
   AND u.branch_id IS NOT NULL
   AND u.company_id <> cb.company_id;
+
+-- 5) Ubicación administrativa de cada sociedad (respaldo del motor de
+--    feriados cuando no hay sucursal de contexto; editable en Empresas).
+INSERT INTO company_locations (company_id, locality, province)
+SELECT c.id, 'Villa María', 'Córdoba' FROM companies c
+WHERE c.organization_group = 'moderna'
+  AND NOT EXISTS (SELECT 1 FROM company_locations cl WHERE cl.company_id = c.id);

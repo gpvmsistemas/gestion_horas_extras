@@ -44,28 +44,42 @@ class RegistroHorasService {
 
     /** Empleados activos de una empresa, con su sucursal (company_branches o área) resuelta. */
     public function getActiveEmployees($companyId) {
+        return $this->getActiveEmployeesForCompanies([(int)$companyId]);
+    }
+
+    /**
+     * Empleados activos de un conjunto de empresas (el Registro de Horas opera
+     * sobre TODO el grupo organizacional: RRHH carga horas para cualquiera de
+     * sus sociedades sin importar la empresa activa).
+     */
+    public function getActiveEmployeesForCompanies(array $companyIds) {
+        $companyIds = array_values(array_filter(array_map('intval', $companyIds)));
+        if (empty($companyIds)) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($companyIds), '?'));
         try {
             $this->db->query(
-                "SELECT u.id, u.full_name, u.area_id, u.branch_id,
+                "SELECT u.id, u.full_name, u.company_id, u.area_id, u.branch_id,
                         cb.name AS branch_name, a.name AS area_name
                  FROM users u
                  LEFT JOIN company_branches cb ON cb.id = u.branch_id
                  LEFT JOIN areas a ON a.id = u.area_id
-                 WHERE u.company_id = ? AND u.is_active = 1 AND u.role = 'empleado'
+                 WHERE u.company_id IN ($ph) AND u.is_active = 1 AND u.role = 'empleado'
                  ORDER BY cb.name IS NULL, cb.name ASC, a.name IS NULL, a.name ASC, u.full_name ASC"
             );
-            return $this->db->resultSet([(int)$companyId]);
+            return $this->db->resultSet($companyIds);
         } catch (Throwable $e) {
             // Esquema sin users.branch_id/company_branches (pre-migración)
             $this->db->query(
-                "SELECT u.id, u.full_name, u.area_id, NULL AS branch_id,
+                "SELECT u.id, u.full_name, u.company_id, u.area_id, NULL AS branch_id,
                         NULL AS branch_name, a.name AS area_name
                  FROM users u
                  LEFT JOIN areas a ON a.id = u.area_id
-                 WHERE u.company_id = ? AND u.is_active = 1 AND u.role = 'empleado'
+                 WHERE u.company_id IN ($ph) AND u.is_active = 1 AND u.role = 'empleado'
                  ORDER BY a.name IS NULL, a.name ASC, u.full_name ASC"
             );
-            return $this->db->resultSet([(int)$companyId]);
+            return $this->db->resultSet($companyIds);
         }
     }
 
