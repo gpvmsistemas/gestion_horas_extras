@@ -64,6 +64,7 @@ if (!$existente) {
         'company_id' => $companyId,
         'employee_group' => 'moderna',
         'attendance_control_mode' => 'no_clock',
+        'profile_picture' => 'default.png',
     ]);
     if (!$ok) {
         fwrite(STDERR, "No se pudo crear el usuario.\n");
@@ -73,6 +74,9 @@ if (!$existente) {
     echo "Ingreso: {$username}+CONTRASEÑA en el campo único del login.\n";
 } else {
     echo "El usuario $username ya existe (id {$existente->id}); no se modifica.\n";
+    // Repara el avatar de una creación anterior a este fix (quedaba NULL).
+    $db->query("UPDATE users SET profile_picture = 'default.png' WHERE username = ? AND profile_picture IS NULL");
+    $db->execute([$username]);
 }
 
 // Scope administrador (idéntico a scripts/fix_scope_admin_moderna.sql).
