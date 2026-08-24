@@ -346,6 +346,78 @@ class VacationAdminController {
         redirect('admin/employeeProfile/' . $userId . '#tab-vacation');
     }
 
+    /**
+     * Vacaciones TOMADAS: un tramo por fila (desde/hasta/días, pasada, en
+     * curso o futura), agrupado por colaborador — la vista rápida de "qué se
+     * tomó cada uno", incluidos los tramos importados del informe de RRHH.
+     */
+    public function tomadas() {
+        requireAdminCompany('admin/dashboard');
+        $orgIds = [];
+        if (function_exists('org_locked_group') && function_exists('org_group_company_ids')) {
+            $locked = org_locked_group();
+            if ($locked !== '') {
+                $orgIds = array_map('intval', org_group_company_ids($locked));
+            }
+        }
+        if (!$orgIds) {
+            $orgIds = function_exists('adminCompanyIds') ? array_map('intval', adminCompanyIds()) : [adminCompanyId()];
+        }
+        $q = trim($_GET['q'] ?? '');
+        $companyId = (int)($_GET['company_id'] ?? 0);
+        if ($companyId && !in_array($companyId, $orgIds, true)) {
+            $companyId = 0;
+        }
+        $anio = preg_match('/^\d{4}$/', $_GET['anio'] ?? '') ? $_GET['anio'] : '';
+        $estado = in_array($_GET['estado'] ?? '', ['pasadas', 'en_curso', 'futuras'], true) ? $_GET['estado'] : '';
+
+        $in = implode(',', $orgIds ?: [0]);
+        $sql = "SELECT m.id, m.days, m.schedule_dates, m.notes, m.source, m.created_at,
+                       u.id user_id, u.full_name, c.name company_name, p.period_label
+                FROM vacation_balance_movements m
+                JOIN users u ON u.id = m.user_id
+                LEFT JOIN companies c ON c.id = u.company_id
+                LEFT JOIN vacation_balance_periods p ON p.id = m.period_id
+                WHERE m.movement_type = 'take' AND u.company_id IN ($in)";
+        $bind = [];
+        if ($companyId) { $sql .= ' AND u.company_id = ?'; $bind[] = $companyId; }
+        if ($q !== '') { $sql .= ' AND u.full_name LIKE ?'; $bind[] = '%' . $q . '%'; }
+        if ($anio !== '') { $sql .= ' AND p.period_label = ?'; $bind[] = $anio; }
+        $sql .= ' ORDER BY u.full_name ASC, m.id ASC';
+        $db = new Database();
+        $db->query($sql);
+        $rows = $db->resultSet($bind);
+
+        $hoy = date('Y-m-d');
+        $tramos = [];
+        $tot = ['tramos' => 0, 'dias' => 0.0, 'en_curso' => 0, 'futuras' => 0];
+        foreach ($rows as $r) {
+            $fechas = json_decode($r->schedule_dates ?? '', true) ?: [];
+            sort($fechas);
+            $desde = $fechas[0] ?? substr($r->created_at, 0, 10);
+            $hasta = $fechas ? end($fechas) : $desde;
+            $st = $hasta < $hoy ? 'pasada' : ($desde > $hoy ? 'futura' : 'en_curso');
+            if ($estado === 'pasadas' && $st !== 'pasada') continue;
+            if ($estado === 'en_curso' && $st !== 'en_curso') continue;
+            if ($estado === 'futuras' && $st !== 'futura') continue;
+            $tramos[$r->full_name . '|' . $r->user_id][] = (object)[
+                'user_id' => (int)$r->user_id, 'company_name' => $r->company_name,
+                'period_label' => $r->period_label, 'desde' => $desde, 'hasta' => $hasta,
+                'dias' => (float)$r->days, 'estado' => $st, 'source' => $r->source, 'notes' => $r->notes,
+            ];
+            $tot['tramos']++;
+            $tot['dias'] += (float)$r->days;
+            if ($st === 'en_curso') $tot['en_curso']++;
+            if ($st === 'futura') $tot['futuras']++;
+        }
+        $this->view('admin/vacation/taken', [
+            'tramos' => $tramos,
+            'totales' => $tot,
+            'filters' => ['q' => $q, 'company_id' => $companyId, 'anio' => $anio, 'estado' => $estado],
+            'companies' => $this->companyModel->getAllCompanies(),
+        ]);
+    }
+
     public function reports() {
         $filters = $this->vacationReportFilters();
         $report = $this->balanceModel->getPendingReport($filters);

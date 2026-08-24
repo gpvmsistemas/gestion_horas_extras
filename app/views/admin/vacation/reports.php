@@ -18,7 +18,10 @@ $modeLabels = function_exists('vacation_day_count_modes') ? vacation_day_count_m
             <p class="page-subtitle mb-0">Saldos consolidados de todas las empresas, con detalle por período.</p>
         </div>
     </div>
-    <a href="<?php echo htmlspecialchars($csvUrl); ?>" class="btn btn-success btn-sm"><i class="fas fa-file-csv me-1"></i>Exportar CSV filtrado</a>
+    <div class="d-flex gap-2">
+        <a href="<?php echo URLROOT; ?>/vacationAdmin/tomadas" class="btn btn-outline-primary btn-sm"><i class="fas fa-plane-departure me-1"></i>Vacaciones tomadas</a>
+        <a href="<?php echo htmlspecialchars($csvUrl); ?>" class="btn btn-success btn-sm"><i class="fas fa-file-csv me-1"></i>Exportar CSV filtrado</a>
+    </div>
 </div>
 
 <div class="admin-kpi-grid vac-report-kpi-grid mb-3">
