@@ -749,5 +749,35 @@ $paso('Catálogo de convenios (CEC, Farmacia 430/05, SOECRA, UTEDYC, Sanidad)',
         }
     });
 
+// ── 15 · Colación unificada ─────────────────────────────────────────────────
+// MySQL 8 crea tablas nuevas con utf8mb4_0900_ai_ci (su default) mientras las
+// tablas heredadas son utf8mb4_general_ci: comparar texto entre ambas da
+// error 1267 (p. ej. Alertas RRHH: marcaciones_cache vs mapeos de reloj).
+// Se convierte todo a utf8mb4_general_ci (la colación del sistema original y
+// del entorno local) y se fija como default de la base para futuros CREATE.
+$paso('Colación unificada utf8mb4_general_ci (evita error 1267 en MySQL 8)',
+    function () use ($scalar) {
+        $mixtas = (int)$scalar("SELECT COUNT(*) FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION <> 'utf8mb4_general_ci'");
+        return $mixtas === 0;
+    },
+    function () use ($pdo, $scalar) {
+        $pdo->exec('ALTER DATABASE `' . DB_NAME . '` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        $st = $pdo->query("SELECT TABLE_NAME FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION <> 'utf8mb4_general_ci'");
+        $tablas = $st->fetchAll(PDO::FETCH_COLUMN);
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+        try {
+            foreach ($tablas as $t) {
+                $pdo->exec("ALTER TABLE `$t` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
+            }
+        } finally {
+            $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        }
+        echo '                (' . count($tablas) . " tabla(s) convertidas)\n";
+    });
+
 echo "\nListo. Ahora: php scripts/verificar_esquema_vps.php\n";
 echo "(El paso 'Scope admin Moderna' queda pendiente hasta crear el usuario axel.moderna.)\n";

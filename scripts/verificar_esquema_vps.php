@@ -117,6 +117,11 @@ $pasos = [
         fn() => $tab('performance_reviews') && $tab('onboarding_checklists')
             && $tab('scheduled_job_runs') && $tab('hr_feature_flags')],
 
+    ['Colación unificada (sin utf8mb4_0900 mezclada)', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $cnt("SELECT COUNT(*) n FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+              AND TABLE_COLLATION IS NOT NULL AND TABLE_COLLATION <> 'utf8mb4_general_ci'") === 0],
+
     ['Suite P&M — Registro de Horas y nómina Moderna', null, null],
     ['Registro de Horas (branch_name/branch_id en schedules)', 'mysql BASE < scripts/migration_registro_horas.sql',
         fn() => $col('employee_schedules', 'branch_name')],
