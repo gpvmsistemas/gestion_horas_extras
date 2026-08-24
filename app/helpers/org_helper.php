@@ -148,6 +148,42 @@ function org_hides_pay_stubs() {
     return org_is_moderna();
 }
 
+/**
+ * Organizaciones con el módulo de Reclutamiento/Vacantes habilitado.
+ * Piloto: arranca solo Moderna; para el go-live de Paviotti, definir
+ * RECRUITING_ORGS en config.local.php: define('RECRUITING_ORGS', ['moderna', 'paviotti']);
+ */
+function org_recruiting_groups() {
+    if (defined('RECRUITING_ORGS') && is_array(RECRUITING_ORGS)) {
+        return array_values(array_intersect(RECRUITING_ORGS, org_valid_groups()));
+    }
+    return ['moderna'];
+}
+
+function org_recruiting_enabled($group = null) {
+    return in_array($group ?: org_current_group(), org_recruiting_groups(), true);
+}
+
+/** Identidad del portal público de vacantes por organización. */
+function org_careers_brand($group) {
+    if ($group === 'moderna') {
+        return [
+            'name'     => 'Red Farmacias Moderna',
+            'logo'     => URLROOT . '/img/moderna-logo.png',
+            'primary'  => '#1e90ff',
+            'dark'     => '#0a3d62',
+            'accent'   => '#82d1b8',
+        ];
+    }
+    return [
+        'name'     => 'Grupo Paviotti · Ecofarma',
+        'logo'     => URLROOT . '/img/logo-paviotti.png',
+        'primary'  => '#4f67ae',
+        'dark'     => '#354b91',
+        'accent'   => '#10b981',
+    ];
+}
+
 /** Moderna no ve los módulos de negocio propios de Paviotti (Ecofarma/CP/PRODE). */
 function org_hides_paviotti_business_modules() {
     return org_is_moderna();

@@ -22,9 +22,26 @@ class HrSuite {
     public function expirations($companyId){return $this->query('SELECT ee.*,et.name type_name,u.full_name,DATEDIFF(ee.expires_on,CURDATE()) days_left FROM employee_expirations ee JOIN expiration_types et ON et.id=ee.expiration_type_id JOIN users u ON u.id=ee.user_id WHERE ee.company_id=? ORDER BY ee.expires_on',[$companyId]);}
     public function expirationTypes($companyId){return $this->query('SELECT * FROM expiration_types WHERE is_active=1 AND(company_id IS NULL OR company_id=?) ORDER BY name',[$companyId]);}
     public function saveExpiration($companyId,$actor,$d){$ok=$this->execute('INSERT INTO employee_expirations(user_id,company_id,branch_id,expiration_type_id,reference_no,issued_on,expires_on,responsible_user_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[(int)$d['user_id'],$companyId,(int)($d['branch_id']??0)?:null,(int)$d['expiration_type_id'],trim($d['reference_no']??'')?:null,trim($d['issued_on']??'')?:null,$d['expires_on'],(int)($d['responsible_user_id']??0)?:null,trim($d['notes']??'')?:null,$actor]);if($ok)$this->audit->record('expiration.created','employee_expiration',$this->db->lastInsertId(),null,$d,'',$companyId);return $ok;}
-    public function vacancies($companyId=0,$public=false){$sql='SELECT jv.*,c.name company_name,b.name branch_name,(SELECT COUNT(*) FROM job_applications ja WHERE ja.vacancy_id=jv.id) application_count FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE 1=1';$p=[];if($companyId){$sql.=' AND jv.company_id=?';$p[]=$companyId;}if($public)$sql.=" AND jv.status='published' AND(jv.closes_at IS NULL OR jv.closes_at>=CURDATE())";$sql.=' ORDER BY jv.created_at DESC';return $this->query($sql,$p);}
-    public function vacancyBySlug($slug){return $this->one("SELECT jv.*,c.name company_name,b.name branch_name FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE jv.slug=? AND jv.status='published'",[$slug]);}
-    public function applications($vacancyId){return $this->query('SELECT ja.*,c.full_name,c.email,c.phone FROM job_applications ja JOIN candidates c ON c.id=ja.candidate_id WHERE ja.vacancy_id=? ORDER BY ja.ai_score DESC,ja.created_at DESC',[$vacancyId]);}
+    public function vacancies($companyId=0,$public=false,$orgGroup=''){$sql='SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name,(SELECT COUNT(*) FROM job_applications ja WHERE ja.vacancy_id=jv.id) application_count FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE 1=1';$p=[];if($companyId){$sql.=' AND jv.company_id=?';$p[]=$companyId;}if($orgGroup!==''){$sql.=' AND c.organization_group=?';$p[]=$orgGroup;}if($public)$sql.=" AND jv.status='published' AND(jv.closes_at IS NULL OR jv.closes_at>=CURDATE())";$sql.=' ORDER BY jv.created_at DESC';return $this->query($sql,$p);}
+    public function vacancyBySlug($slug,$anyStatus=false){return $this->one("SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE jv.slug=?".($anyStatus?'':" AND jv.status='published'"),[$slug]);}
+    public function vacancyById($id,$companyId){return $this->one('SELECT jv.* FROM job_vacancies jv WHERE jv.id=? AND jv.company_id=?',[(int)$id,(int)$companyId]);}
+    /**
+     * Postulaciones con filtros server-side y paginación (port del panel del
+     * Flask viejo). $f: q (nombre/email), stage, status. Devuelve
+     * ['rows'=>..., 'total'=>n, 'page'=>p, 'pages'=>n].
+     */
+    public function applications($vacancyId,array $f=[],$page=1,$per=25){
+        $where='ja.vacancy_id=?';$p=[(int)$vacancyId];
+        if(($f['q']??'')!==''){$where.=' AND (c.full_name LIKE ? OR c.email LIKE ?)';$like='%'.$f['q'].'%';$p[]=$like;$p[]=$like;}
+        if(($f['stage']??'')!==''){$where.=' AND ja.current_stage=?';$p[]=$f['stage'];}
+        if(($f['status']??'')!==''){$where.=' AND ja.status=?';$p[]=$f['status'];}
+        $total=(int)($this->one("SELECT COUNT(*) n FROM job_applications ja JOIN candidates c ON c.id=ja.candidate_id WHERE $where",$p)->n??0);
+        $pages=max(1,(int)ceil($total/$per));$page=min(max(1,(int)$page),$pages);
+        $rows=$this->query("SELECT ja.*,c.full_name,c.email,c.phone FROM job_applications ja JOIN candidates c ON c.id=ja.candidate_id WHERE $where ORDER BY ja.ai_score DESC,ja.created_at DESC LIMIT ".(int)$per.' OFFSET '.(int)(($page-1)*$per),$p);
+        return ['rows'=>$rows,'total'=>$total,'page'=>$page,'pages'=>$pages];
+    }
+    public function positionsForCompany($companyId){return $this->query('SELECT id,name FROM job_positions WHERE company_id=? ORDER BY name',[(int)$companyId]);}
+    public function branchesForCompany($companyId){return $this->query('SELECT id,name FROM company_branches WHERE company_id=? AND is_active=1 ORDER BY name',[(int)$companyId]);}
     public function performanceCycles($companyId){return $this->query('SELECT pc.*,pt.name template_name,(SELECT COUNT(*) FROM performance_reviews pr WHERE pr.cycle_id=pc.id) reviews,(SELECT COUNT(*) FROM performance_reviews pr WHERE pr.cycle_id=pc.id AND pr.status<>\'pending\') submitted FROM performance_cycles pc JOIN performance_templates pt ON pt.id=pc.template_id WHERE pc.company_id=? ORDER BY pc.starts_on DESC',[$companyId]);}
     public function audit(){return $this->audit;}
 }

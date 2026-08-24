@@ -1,1 +1,14 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seguimiento</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head><body class="bg-light"><main class="container py-5" style="max-width:680px"><div class="card border-0 shadow-sm"><div class="card-body p-5"><span class="badge text-bg-primary mb-3">Seguimiento privado</span><h1 class="h2"><?= htmlspecialchars($d['application']->title) ?></h1><p class="text-secondary"><?= htmlspecialchars($d['application']->company_name) ?></p><hr><p>Estado actual: <strong><?= htmlspecialchars(ucfirst($d['application']->current_stage)) ?></strong></p><p class="small text-secondary">Recibida el <?= date('d/m/Y',strtotime($d['application']->created_at)) ?>. Conservá este enlace; no muestra datos personales ni notas internas.</p></div></div></main></body></html>
+<?php $titulo = 'Seguimiento · ' . $d['brand']['name']; require APPROOT . '/views/careers/partials/head.php'; ?>
+<main class="container py-5" style="max-width:680px">
+  <div class="card careers-card">
+    <div class="card-body p-5">
+      <span class="badge badge-brand mb-3">Seguimiento privado</span>
+      <h1 class="h2"><?= htmlspecialchars($d['application']->title) ?></h1>
+      <p class="text-secondary"><?= htmlspecialchars($d['application']->company_name) ?></p>
+      <hr>
+      <p>Estado actual: <strong><?= htmlspecialchars(ucfirst($d['application']->current_stage)) ?></strong></p>
+      <p class="small text-secondary mb-0">Recibida el <?= date('d/m/Y', strtotime($d['application']->created_at)) ?>. Conservá este enlace; no muestra datos personales ni notas internas.</p>
+    </div>
+  </div>
+</main>
+<?php require APPROOT . '/views/careers/partials/foot.php'; ?>
