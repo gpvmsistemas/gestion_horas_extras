@@ -233,6 +233,73 @@ $paso('Control de acceso (user_access_scopes + políticas + auditoría)',
         }
     });
 
+// ── 5b · Programa RRHH Integral (hr_operations_talent) ──────────────────────
+// 27 tablas: auditoría, capacidades, cierres, vencimientos, EPP, activos,
+// ATS/vacantes, desempeño, onboarding, flags. El .sql es MariaDB-flavored
+// (CREATE TRIGGER IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, CREATE INDEX IF
+// NOT EXISTS): acá se ejecuta sentencia por sentencia con las adaptaciones.
+$paso('RRHH Integral (auditoría, capacidades, EPP, activos, ATS, desempeño)',
+    function () use ($hasTab, $hasCol, $scalar) {
+        foreach (['audit_events', 'access_capabilities', 'employee_expirations', 'ppe_deliveries',
+                  'assets', 'job_vacancies', 'candidates', 'job_applications', 'career_consents',
+                  'performance_reviews', 'onboarding_checklists', 'scheduled_job_runs', 'hr_feature_flags'] as $t) {
+            if (!$hasTab($t)) {
+                return false;
+            }
+        }
+        return $hasCol('users', 'employment_status')
+            && (int)$scalar('SELECT COUNT(*) FROM career_consents') >= 1
+            && (int)$scalar('SELECT COUNT(*) FROM access_capabilities') >= 20;
+    },
+    function () use ($pdo, $root, $hasTab, $hasCol, $hasIdx, $scalar) {
+        $sql = file_get_contents($root . '/migration_hr_operations_talent.sql');
+        if ($sql === false) {
+            throw new RuntimeException('No se encontró migration_hr_operations_talent.sql');
+        }
+        foreach (preg_split('/;\s*(?:\r?\n|$)/', $sql) as $st) {
+            $st = trim($st);
+            if ($st === '' || strpos($st, '--') === 0 && strpos($st, "\n") === false) {
+                continue;
+            }
+            // CREATE TRIGGER IF NOT EXISTS (IF NOT EXISTS es MariaDB / MySQL 8.0.29+)
+            if (preg_match('/CREATE TRIGGER IF NOT EXISTS\s+(\w+)/i', $st, $m)) {
+                $existe = (int)$scalar('SELECT COUNT(*) FROM information_schema.TRIGGERS
+                    WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = ?', [$m[1]]);
+                if (!$existe) {
+                    $pdo->exec(preg_replace('/IF NOT EXISTS\s+/i', '', $st, 1));
+                }
+                continue;
+            }
+            // ALTER TABLE t ADD COLUMN IF NOT EXISTS c1 ..., ADD COLUMN IF NOT EXISTS c2 ...
+            if (preg_match('/ALTER TABLE\s+`?(\w+)`?\s+(ADD COLUMN IF NOT EXISTS.*)$/is', $st, $m)) {
+                $tabla = $m[1];
+                if (!$hasTab($tabla)) {
+                    echo "                (aviso: falta la tabla $tabla en esta base; se omite su ALTER)\n";
+                    continue;
+                }
+                $partes = preg_split('/,?\s*ADD COLUMN IF NOT EXISTS\s+/i', $m[2]);
+                array_shift($partes);
+                foreach ($partes as $def) {
+                    $def = rtrim(trim($def), ';,');
+                    if ($def === '' || !preg_match('/^(\w+)/', $def, $c) || $hasCol($tabla, $c[1])) {
+                        continue;
+                    }
+                    $pdo->exec("ALTER TABLE `$tabla` ADD COLUMN $def");
+                }
+                continue;
+            }
+            // CREATE INDEX IF NOT EXISTS idx ON tabla(...)
+            if (preg_match('/CREATE INDEX IF NOT EXISTS\s+(\w+)\s+ON\s+`?(\w+)`?/i', $st, $m)) {
+                if (!$hasIdx($m[2], $m[1])) {
+                    $pdo->exec(preg_replace('/IF NOT EXISTS\s+/i', '', $st, 1));
+                }
+                continue;
+            }
+            // Resto: CREATE TABLE IF NOT EXISTS e INSERTs idempotentes, tal cual.
+            $pdo->exec($st);
+        }
+    });
+
 // ── 6 · Registro de Horas ───────────────────────────────────────────────────
 $paso('employee_schedules.branch_name',
     fn() => $hasCol('employee_schedules', 'branch_name'),

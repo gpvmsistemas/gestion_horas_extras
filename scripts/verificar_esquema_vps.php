@@ -103,6 +103,20 @@ $pasos = [
     ['Catálogo de obras sociales', 'php scripts/apply_health_insurers_catalog.php',
         fn() => $cnt('SELECT COUNT(*) n FROM health_insurers') >= 20],
 
+    ['RRHH Integral (programa hr_operations_talent)', null, null],
+    ['Auditoría y capacidades (audit_events + access_capabilities)', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $tab('audit_events') && $tab('access_capabilities')
+            && $cnt('SELECT COUNT(*) n FROM access_capabilities') >= 20],
+    ['Vencimientos, EPP y activos', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $tab('employee_expirations') && $tab('ppe_deliveries') && $tab('assets')],
+    ['ATS/Vacantes (job_vacancies + consentimiento + preingreso)', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $tab('job_vacancies') && $tab('candidates') && $tab('job_applications')
+            && $cnt('SELECT COUNT(*) n FROM career_consents') >= 1
+            && $col('users', 'employment_status')],
+    ['Desempeño, onboarding y jobs programados', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $tab('performance_reviews') && $tab('onboarding_checklists')
+            && $tab('scheduled_job_runs') && $tab('hr_feature_flags')],
+
     ['Suite P&M — Registro de Horas y nómina Moderna', null, null],
     ['Registro de Horas (branch_name/branch_id en schedules)', 'mysql BASE < scripts/migration_registro_horas.sql',
         fn() => $col('employee_schedules', 'branch_name')],
