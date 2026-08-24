@@ -156,7 +156,43 @@ class User {
             'birth_date'              => $birth,
             'emergency_contact_name'  => isset($post['emergency_contact_name']) ? trim((string)$post['emergency_contact_name']) : null,
             'emergency_contact_phone' => isset($post['emergency_contact_phone']) ? trim((string)$post['emergency_contact_phone']) : null,
+            'emergency_contact_relationship' => isset($post['emergency_contact_relationship']) ? trim((string)$post['emergency_contact_relationship']) : null,
+            'marital_status'          => self::normalizeMaritalStatus($post['marital_status'] ?? ''),
+            'children_count'          => (isset($post['children_count']) && $post['children_count'] !== '') ? max(0, (int)$post['children_count']) : null,
+            'hr_notes'                => isset($post['hr_notes']) ? trim((string)$post['hr_notes']) : null,
         ];
+    }
+
+    /** Opciones de estado civil (valores de la nómina de RRHH). */
+    public static function maritalStatusOptions() {
+        return [
+            ''             => '— Sin definir —',
+            'Soltero/a'    => 'Soltero/a',
+            'Casado/a'     => 'Casado/a',
+            'Concubinato'  => 'Concubinato',
+            'Divorciado/a' => 'Divorciado/a',
+            'Viudo/a'      => 'Viudo/a',
+        ];
+    }
+
+    public static function normalizeMaritalStatus($value) {
+        $value = trim((string)$value);
+        return array_key_exists($value, self::maritalStatusOptions()) && $value !== '' ? $value : null;
+    }
+
+    /** migración migration_ficha_personal.sql aplicada (estado civil, hijos, parentesco, observaciones). */
+    public function isPersonalFileReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM `users` LIKE 'marital_status'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
     }
 
     public function isProfileExtendedReady() {
@@ -314,6 +350,15 @@ class User {
             $cols[] = 'attendance_control_mode';
             $vals[] = self::normalizeAttendanceControlMode($data['attendance_control_mode'] ?? 'required');
         }
+        if ($this->isPersonalFileReady()) {
+            $cols = array_merge($cols, ['marital_status', 'children_count', 'emergency_contact_relationship', 'hr_notes']);
+            $vals = array_merge($vals, [
+                $data['marital_status'] ?? null,
+                $data['children_count'] ?? null,
+                $data['emergency_contact_relationship'] ?? null,
+                ($data['hr_notes'] ?? '') !== '' ? $data['hr_notes'] : null,
+            ]);
+        }
 
         $cols = array_merge($cols, $this->employmentColumnNames());
         $vals = array_merge($vals, $this->employmentValues($data));
@@ -400,6 +445,20 @@ class User {
                 $data['birth_date'] ?? null,
                 $data['emergency_contact_name'] ?? null,
                 $data['emergency_contact_phone'] ?? null,
+            ]);
+        }
+        if ($this->isPersonalFileReady()) {
+            $sets = array_merge($sets, [
+                'marital_status = ?',
+                'children_count = ?',
+                'emergency_contact_relationship = ?',
+                'hr_notes = ?',
+            ]);
+            $vals = array_merge($vals, [
+                $data['marital_status'] ?? null,
+                $data['children_count'] ?? null,
+                $data['emergency_contact_relationship'] ?? null,
+                ($data['hr_notes'] ?? '') !== '' ? $data['hr_notes'] : null,
             ]);
         }
         foreach ($this->employmentColumnNames() as $col) {

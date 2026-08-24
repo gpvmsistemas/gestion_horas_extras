@@ -53,3 +53,8 @@ desktop.ini
 # Entorno local de integración (no versionar)
 hoursapp-moderna/
 paviotti_lanaturaleza*.sql
+# Nóminas de RRHH y credenciales (datos personales reales — repo público)
+Nomina*.xlsx
+*.xlsx
+*.xls
+nomina_credenciales.json
