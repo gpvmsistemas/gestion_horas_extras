@@ -481,6 +481,18 @@ class RegistroHorasController {
             $records = $this->filterRecordsByPlace($records, $data['filters']['city'], $data['filters']['branch'], $data['branchesByCity']);
             $data['records'] = $records;
             $data['statusPeriods'] = $this->service->statusPeriodsForUsers([$data['selected']->id], $first, $last)[$data['selected']->id] ?? [];
+            // Días bloqueados por BLOQUES vacation/leave (p. ej. vacaciones
+            // importadas de RRHH): también se pintan en el calendario.
+            $blockDayLabels = [];
+            foreach ($blocksMap as $bDate => $bBlocks) {
+                foreach ($bBlocks as $bb) {
+                    if ($bb->type === 'vacation' || $bb->type === 'leave') {
+                        $blockDayLabels[$bDate] = $bb->type === 'vacation' ? 'Vacaciones' : 'Licencia';
+                        break;
+                    }
+                }
+            }
+            $data['blockDayLabels'] = $blockDayLabels;
         } else {
             $data['selected'] = $data['employees'][0];
             $data['records'] = $this->sampleMonthRecords($data['org']);

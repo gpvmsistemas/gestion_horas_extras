@@ -51,6 +51,12 @@ if ($monthValue !== null) {
             $cursor = date('Y-m-d', strtotime($cursor . ' +1 day'));
         }
     }
+    // Bloques vacation/leave del mes (p. ej. vacaciones importadas de RRHH).
+    foreach (($data['blockDayLabels'] ?? []) as $bDate => $bLabel) {
+        if ($bDate >= $mFirst && $bDate <= $mLast) {
+            $statusDays[(int)date('j', strtotime($bDate))] = $bLabel;
+        }
+    }
 }
 // D6: precisión fraccional visible — 8 se muestra "8", 7.5 se muestra "7.5".
 if (!function_exists('rh_fmt_horas')) {
