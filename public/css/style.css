@@ -5196,6 +5196,8 @@ body.portal-casapav .emp-bnav-item--logout:hover {
     .app-staff .admin-page-actions .btn { flex:1 1 auto; }
     .app-staff .page-content .card-body { padding:1rem; }
     .app-staff .page-content .table tbody td,.app-staff .page-content .table thead th { padding:.65rem .7rem; }
+}
+
 /* Cabecera oscura de modales del dashboard (base compartida; antes era un
    style inline en dashboard.php — el tema Moderna la re-declara abajo). */
 .db-dark-head {
