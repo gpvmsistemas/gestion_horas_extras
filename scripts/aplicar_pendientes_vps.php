@@ -38,6 +38,10 @@ $pdo = new PDO(
     DB_PASS,
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
 );
+// Modo permisivo para la sesión: las tablas heredadas traen fechas
+// '0000-00-00' que el modo estricto de MySQL 8 rechaza al reconstruirlas
+// (p. ej. en la conversión de colación). Mismo criterio que Database.php.
+$pdo->exec("SET SESSION sql_mode = 'NO_ENGINE_SUBSTITUTION'");
 
 $hasTab = function ($tabla) use ($pdo) {
     $st = $pdo->prepare('SHOW TABLES LIKE ?');
