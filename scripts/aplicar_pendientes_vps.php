@@ -58,11 +58,39 @@ $hasIdx = function ($tabla, $indice) use ($pdo) {
     }
     return false;
 };
+$hasUniqueOn = function ($tabla, $columna) use ($pdo) {
+    $st = $pdo->query("SHOW INDEX FROM `$tabla`");
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (($row['Column_name'] ?? '') === $columna && (int)($row['Non_unique'] ?? 1) === 0) {
+            return true;
+        }
+    }
+    return false;
+};
 $scalar = function ($sql, array $params = []) use ($pdo) {
     $st = $pdo->prepare($sql);
     $st->execute($params);
     $v = $st->fetchColumn();
     return $v === false ? null : $v;
+};
+$colInfo = function ($tabla, $columna) use ($pdo) {
+    $st = $pdo->prepare("SHOW COLUMNS FROM `$tabla` LIKE ?");
+    $st->execute([$columna]);
+    $r = $st->fetch(PDO::FETCH_ASSOC);
+    return $r ?: null;
+};
+$colType = fn($tabla, $columna) => strtolower((string)(($colInfo($tabla, $columna)['Type'] ?? '')));
+$colNullable = fn($tabla, $columna) => (($colInfo($tabla, $columna)['Null'] ?? '') === 'YES');
+$addCol = function ($tabla, $columna, $definicion) use ($pdo, $hasCol) {
+    if ($hasCol($tabla, $columna)) {
+        return;
+    }
+    try {
+        $pdo->exec("ALTER TABLE `$tabla` ADD COLUMN $definicion");
+    } catch (PDOException $e) {
+        // El ancla del AFTER no existe en este esquema: agrega al final.
+        $pdo->exec("ALTER TABLE `$tabla` ADD COLUMN " . preg_replace('/ AFTER \S+$/i', '', $definicion));
+    }
 };
 
 $fallo = 0;
@@ -385,44 +413,273 @@ foreach ($fichaCols as $colName => $clause) {
         });
 }
 
-// ── 13 · CCT 430/05 Empleados de Farmacia Córdoba (escala de vacaciones) ────
-$paso('CCT 430/05 Farmacia Córdoba (convenio + 4 reglas de escala)',
+// ── 13 · Vacaciones v2 — alineación de esquema (migration_vacation_management_v2.sql
+//         nunca se aplicó completa en el VPS: su ADD COLUMN IF NOT EXISTS es
+//         de MariaDB. El verificador solo miraba que exista la tabla base. ───
+if (!$hasTab('vacation_balance_periods') || !$hasTab('vacation_balance_movements')
+    || !$hasTab('collective_agreements') || !$hasTab('collective_agreement_rules')) {
+    fwrite(STDERR, "Faltan las tablas base de vacaciones v2 (las crea la migración base de Lautaro, paso 38 del paquete hosting).\n");
+    exit(1);
+}
+
+$paso('Vacaciones v2 — columnas de collective_agreements',
+    function () use ($hasCol, $hasUniqueOn) {
+        foreach (['code', 'description', 'jurisdiction', 'legal_reference', 'period_start_month',
+                  'period_start_day', 'notice_days', 'start_rule', 'split_policy',
+                  'minimum_request_days', 'is_active'] as $c) {
+            if (!$hasCol('collective_agreements', $c)) {
+                return false;
+            }
+        }
+        return $hasUniqueOn('collective_agreements', 'code');
+    },
+    function () use ($pdo, $addCol, $hasCol, $hasUniqueOn) {
+        if (!$hasCol('collective_agreements', 'code')) {
+            $addCol('collective_agreements', 'code', "code VARCHAR(40) NOT NULL DEFAULT '' AFTER id");
+            $pdo->exec("UPDATE collective_agreements SET code = 'CEC' WHERE code = '' AND name LIKE '%Comercio%'");
+        }
+        $addCol('collective_agreements', 'description', 'description TEXT NULL AFTER name');
+        $addCol('collective_agreements', 'jurisdiction', 'jurisdiction VARCHAR(180) NULL AFTER description');
+        $addCol('collective_agreements', 'legal_reference', 'legal_reference VARCHAR(255) NULL AFTER jurisdiction');
+        $addCol('collective_agreements', 'period_start_month', 'period_start_month TINYINT NOT NULL DEFAULT 10 AFTER legal_reference');
+        $addCol('collective_agreements', 'period_start_day', 'period_start_day TINYINT NOT NULL DEFAULT 1 AFTER period_start_month');
+        $addCol('collective_agreements', 'notice_days', 'notice_days SMALLINT UNSIGNED NOT NULL DEFAULT 30 AFTER period_start_day');
+        $addCol('collective_agreements', 'start_rule', "start_rule VARCHAR(40) NOT NULL DEFAULT 'lct' AFTER notice_days");
+        $addCol('collective_agreements', 'split_policy', "split_policy VARCHAR(40) NOT NULL DEFAULT 'lct_7' AFTER start_rule");
+        $addCol('collective_agreements', 'minimum_request_days', 'minimum_request_days DECIMAL(5,1) NOT NULL DEFAULT 7.0 AFTER split_policy');
+        $addCol('collective_agreements', 'is_active', 'is_active TINYINT(1) NOT NULL DEFAULT 1');
+        if (!$hasUniqueOn('collective_agreements', 'code')) {
+            $pdo->exec('ALTER TABLE collective_agreements ADD UNIQUE INDEX uk_ca_code (code)');
+        }
+    });
+
+$paso('Vacaciones v2 — reglas: day_count_mode e índice único',
+    function () use ($colType, $hasIdx) {
+        return $colType('collective_agreement_rules', 'day_count_mode') === "enum('weekdays','calendar','business_mon_sat')"
+            && $hasIdx('collective_agreement_rules', 'uk_car_agreement_min');
+    },
+    function () use ($pdo, $addCol, $hasCol, $hasIdx, $colType, $scalar) {
+        $addCol('collective_agreement_rules', 'max_months', 'max_months INT NULL AFTER min_months');
+        $addCol('collective_agreement_rules', 'allows_split', 'allows_split TINYINT(1) NOT NULL DEFAULT 1');
+        $addCol('collective_agreement_rules', 'allows_carryover', 'allows_carryover TINYINT(1) NOT NULL DEFAULT 1');
+        $addCol('collective_agreement_rules', 'min_consecutive_days', 'min_consecutive_days INT NULL');
+        $addCol('collective_agreement_rules', 'notes', 'notes TEXT NULL');
+        if (!$hasCol('collective_agreement_rules', 'day_count_mode')) {
+            $addCol('collective_agreement_rules', 'day_count_mode',
+                "day_count_mode ENUM('weekdays','calendar','business_mon_sat') NOT NULL DEFAULT 'calendar' AFTER days_entitled");
+        } elseif ($colType('collective_agreement_rules', 'day_count_mode') !== "enum('weekdays','calendar','business_mon_sat')") {
+            $pdo->exec("ALTER TABLE collective_agreement_rules
+                MODIFY COLUMN day_count_mode ENUM('weekdays','calendar','business_mon_sat') NOT NULL DEFAULT 'calendar'");
+        }
+        if (!$hasIdx('collective_agreement_rules', 'uk_car_agreement_min')) {
+            $dupes = (int)$scalar('SELECT COUNT(*) FROM (SELECT agreement_id, min_months FROM collective_agreement_rules
+                GROUP BY agreement_id, min_months HAVING COUNT(*) > 1) d');
+            if ($dupes > 0) {
+                throw new RuntimeException("Hay $dupes pares (agreement_id, min_months) duplicados en collective_agreement_rules; resolvelos a mano antes de crear el índice único.");
+            }
+            $pdo->exec('ALTER TABLE collective_agreement_rules ADD UNIQUE INDEX uk_car_agreement_min (agreement_id, min_months)');
+        }
+    });
+
+$paso('Vacaciones v2 — columnas de vacation_balance_periods',
+    function () use ($hasCol, $hasIdx) {
+        foreach (['balance_type', 'adjustment_days', 'expires_at', 'count_mode_snapshot', 'origin_notes'] as $c) {
+            if (!$hasCol('vacation_balance_periods', $c)) {
+                return false;
+            }
+        }
+        return $hasIdx('vacation_balance_periods', 'uk_vbp_user_period_type')
+            && !$hasIdx('vacation_balance_periods', 'uk_vbp_user_period');
+    },
+    function () use ($pdo, $addCol, $hasCol, $hasIdx, $scalar) {
+        $teniaAjustes = $hasCol('vacation_balance_periods', 'adjustment_days');
+        $addCol('vacation_balance_periods', 'balance_type',
+            "balance_type ENUM('annual','historical','conventional_credit') NOT NULL DEFAULT 'annual' AFTER period_end");
+        $addCol('vacation_balance_periods', 'adjustment_days',
+            'adjustment_days DECIMAL(5,1) NOT NULL DEFAULT 0.0 AFTER days_taken');
+        $addCol('vacation_balance_periods', 'count_mode_snapshot',
+            "count_mode_snapshot ENUM('weekdays','calendar','business_mon_sat') NOT NULL DEFAULT 'calendar' AFTER agreement_rule_id");
+        $addCol('vacation_balance_periods', 'expires_at', 'expires_at DATE NULL AFTER status');
+        $addCol('vacation_balance_periods', 'origin_notes', 'origin_notes VARCHAR(500) NULL AFTER expires_at');
+        if (!$hasIdx('vacation_balance_periods', 'idx_vbp_reporting')) {
+            $pdo->exec('ALTER TABLE vacation_balance_periods ADD INDEX idx_vbp_reporting (status, balance_type, period_start, expires_at)');
+        }
+        if (!$hasIdx('vacation_balance_periods', 'uk_vbp_user_period_type')) {
+            $dupes = (int)$scalar('SELECT COUNT(*) FROM (SELECT user_id, period_label, balance_type FROM vacation_balance_periods
+                GROUP BY user_id, period_label, balance_type HAVING COUNT(*) > 1) d');
+            if ($dupes > 0) {
+                throw new RuntimeException("Hay $dupes grupos (user_id, period_label, balance_type) duplicados en vacation_balance_periods; resolvelos a mano.");
+            }
+            $pdo->exec('ALTER TABLE vacation_balance_periods ADD UNIQUE INDEX uk_vbp_user_period_type (user_id, period_label, balance_type)');
+        }
+        if ($hasIdx('vacation_balance_periods', 'uk_vbp_user_period')) {
+            $pdo->exec('ALTER TABLE vacation_balance_periods DROP INDEX uk_vbp_user_period');
+        }
+        if (!$teniaAjustes) {
+            // Recomposición única del saldo con la nueva columna de ajustes.
+            $pdo->exec("UPDATE vacation_balance_periods
+                SET days_pending = GREATEST(0, days_entitled + adjustment_days - days_taken),
+                    status = CASE WHEN days_entitled + adjustment_days - days_taken <= 0 THEN 'closed' ELSE 'open' END");
+        }
+    });
+
+$paso('Vacaciones v2 — columnas de vacation_balance_movements',
+    function () use ($hasCol, $hasIdx, $colType) {
+        return $hasCol('vacation_balance_movements', 'operation_key')
+            && $hasCol('vacation_balance_movements', 'schedule_snapshot')
+            && $hasIdx('vacation_balance_movements', 'uk_vbm_operation')
+            && $colType('vacation_balance_movements', 'movement_type') === "enum('accrual','take','adjustment','reversal','opening_balance','import','expiry','conversion','exception')"
+            && $colType('vacation_balance_movements', 'source') === "enum('liquidation','request','planner','manual','import','system','cancellation')";
+    },
+    function () use ($pdo, $addCol, $hasIdx, $colType) {
+        if ($colType('vacation_balance_movements', 'movement_type') !== "enum('accrual','take','adjustment','reversal','opening_balance','import','expiry','conversion','exception')") {
+            $pdo->exec("ALTER TABLE vacation_balance_movements
+                MODIFY COLUMN movement_type ENUM('accrual','take','adjustment','reversal','opening_balance','import','expiry','conversion','exception') NOT NULL");
+        }
+        if ($colType('vacation_balance_movements', 'source') !== "enum('liquidation','request','planner','manual','import','system','cancellation')") {
+            $pdo->exec("ALTER TABLE vacation_balance_movements
+                MODIFY COLUMN source ENUM('liquidation','request','planner','manual','import','system','cancellation') NOT NULL");
+        }
+        $addCol('vacation_balance_movements', 'operation_key', 'operation_key VARCHAR(120) NULL AFTER request_id');
+        $addCol('vacation_balance_movements', 'schedule_dates', 'schedule_dates LONGTEXT NULL');
+        $addCol('vacation_balance_movements', 'schedule_snapshot', 'schedule_snapshot LONGTEXT NULL AFTER schedule_dates');
+        if (!$hasIdx('vacation_balance_movements', 'uk_vbm_operation')) {
+            $pdo->exec('ALTER TABLE vacation_balance_movements ADD UNIQUE INDEX uk_vbm_operation (operation_key)');
+        }
+    });
+
+$paso('Vacaciones v2 — columnas de requests',
+    function () use ($hasCol) {
+        foreach (['vacation_counted_days', 'vacation_rule_snapshot', 'vacation_exception_reason',
+                  'vacation_exception_by', 'vacation_exception_at'] as $c) {
+            if (!$hasCol('requests', $c)) {
+                return false;
+            }
+        }
+        return true;
+    },
+    function () use ($addCol) {
+        $addCol('requests', 'vacation_counted_days', 'vacation_counted_days DECIMAL(5,1) NULL AFTER admin_notes');
+        $addCol('requests', 'vacation_rule_snapshot', 'vacation_rule_snapshot LONGTEXT NULL AFTER vacation_counted_days');
+        $addCol('requests', 'vacation_exception_reason', 'vacation_exception_reason VARCHAR(500) NULL AFTER vacation_rule_snapshot');
+        $addCol('requests', 'vacation_exception_by', 'vacation_exception_by INT NULL AFTER vacation_exception_reason');
+        $addCol('requests', 'vacation_exception_at', 'vacation_exception_at DATETIME NULL AFTER vacation_exception_by');
+    });
+
+$paso('users.vacation_days_available en DECIMAL(6,1)',
+    fn() => strpos($colType('users', 'vacation_days_available'), 'decimal') === 0,
+    function () use ($pdo, $hasCol, $addCol) {
+        if (!$hasCol('users', 'vacation_days_available')) {
+            $addCol('users', 'vacation_days_available', 'vacation_days_available DECIMAL(6,1) NOT NULL DEFAULT 0.0');
+        } else {
+            $pdo->exec('ALTER TABLE users MODIFY COLUMN vacation_days_available DECIMAL(6,1) NOT NULL DEFAULT 0.0');
+        }
+    });
+
+$paso('employee_schedules: start/end nulos (bloques de vacaciones)',
+    fn() => $colNullable('employee_schedules', 'start_time') && $colNullable('employee_schedules', 'end_time'),
+    fn() => $pdo->exec('ALTER TABLE employee_schedules
+        MODIFY COLUMN start_time TIME NULL,
+        MODIFY COLUMN end_time TIME NULL'));
+
+// ── 14 · Catálogo de convenios (5 CCT + escalas; upsert por code, sin
+//         VALUES() en ON DUPLICATE, que MySQL 8.4 ya no soporta) ────────────
+$paso('Catálogo de convenios (CEC, Farmacia 430/05, SOECRA, UTEDYC, Sanidad)',
     function () use ($scalar) {
-        return (int)$scalar("SELECT COUNT(*) FROM collective_agreement_rules r
-            JOIN collective_agreements a ON a.id = r.agreement_id
-            WHERE a.code = 'FARMACIA-430-05'") >= 4;
+        return (int)$scalar("SELECT COUNT(*) FROM collective_agreements
+                WHERE code IN ('CEC','FARMACIA-430-05','SOECRA-761-19','UTEDYC-2023','SANIDAD-122-75')") >= 5
+            && (int)$scalar("SELECT COUNT(*) FROM collective_agreement_rules r
+                JOIN collective_agreements a ON a.id = r.agreement_id
+                WHERE a.code = 'FARMACIA-430-05'") >= 4;
     },
     function () use ($pdo, $scalar) {
-        $aid = $scalar("SELECT id FROM collective_agreements WHERE code = 'FARMACIA-430-05'");
-        if ($aid === null) {
-            $pdo->exec("INSERT INTO collective_agreements
-                (code, name, description, jurisdiction, legal_reference,
-                 period_start_month, period_start_day, notice_days, start_rule,
-                 split_policy, minimum_request_days, is_active)
-                VALUES
-                ('FARMACIA-430-05',
-                 'Empleados de Farmacia Cordoba - CCT 430/05',
-                 'Farmacias de la provincia de Cordoba. Inicio lunes o siguiente habil si fuera feriado.',
-                 'Provincia de Cordoba',
-                 'CCT 430/05, art. 24',
-                 1, 1, 60, 'monday_or_next_business', 'lct_7', 7.0, 1)");
-            $aid = $pdo->lastInsertId();
-        }
-        $aid = (int)$aid;
-        $reglas = [
-            [0,   60,   17, 'Hasta 5 años inclusive'],
-            [61,  120,  26, 'Mas de 5 y hasta 10 años'],
-            [121, 240,  35, 'Mas de 10 y hasta 20 años'],
-            [241, null, 44, 'Mas de 20 años'],
+        $convenios = [
+            ['CEC', 'Empleados de Comercio - CCT 130/75',
+             'Vacaciones conforme LCT. El CCT exige comunicacion con 60 dias de anticipacion.',
+             'Republica Argentina', 'CCT 130/75, arts. 74 y 75', 60, 'lct', 'lct_7'],
+            ['FARMACIA-430-05', 'Empleados de Farmacia Cordoba - CCT 430/05',
+             'Farmacias de la provincia de Cordoba. Inicio lunes o siguiente habil si fuera feriado.',
+             'Provincia de Cordoba', 'CCT 430/05, art. 24', 60, 'monday_or_next_business', 'lct_7'],
+            ['SOECRA-761-19', 'SOECRA Cementerios - CCT 761/19',
+             'Cementerios, crematorios, salas velatorias y panteones comprendidos por el convenio.',
+             'Republica Argentina, segun representatividad de las partes', 'CCT 761/19, arts. 47 y 49', 30, 'lct', 'soecra_14_plus_7'],
+            ['UTEDYC-2023', 'UTEDYC - FEDEDAC - AREDA 2023',
+             'Entidades deportivas y asociaciones civiles. Reemplaza al CCT 736/16.',
+             'Republica Argentina', 'Resolucion ST 1661/2023, arts. 12 y 13', 30, 'lct', 'lct_7'],
+            ['SANIDAD-122-75', 'Sanidad - CCT 122/75',
+             'Clinicas, sanatorios, hospitales privados y establecimientos geriatricos.',
+             'Republica Argentina', 'CCT 122/75, arts. 21 y 22', 30, 'lct', 'lct_7'],
         ];
-        $st = $pdo->prepare("INSERT IGNORE INTO collective_agreement_rules
+        $escalas = [
+            'CEC' => [
+                [0, 60, 14, 'calendar', 7, 'Hasta 5 años inclusive'],
+                [61, 120, 21, 'calendar', 7, 'Mas de 5 y hasta 10 años'],
+                [121, 240, 28, 'calendar', 7, 'Mas de 10 y hasta 20 años'],
+                [241, null, 35, 'calendar', 7, 'Mas de 20 años'],
+            ],
+            'FARMACIA-430-05' => [
+                [0, 60, 17, 'calendar', 7, 'Hasta 5 años inclusive'],
+                [61, 120, 26, 'calendar', 7, 'Mas de 5 y hasta 10 años'],
+                [121, 240, 35, 'calendar', 7, 'Mas de 10 y hasta 20 años'],
+                [241, null, 44, 'calendar', 7, 'Mas de 20 años'],
+            ],
+            'SOECRA-761-19' => [
+                [0, 60, 14, 'business_mon_sat', 14, 'Hasta 5 años inclusive; sabado habil'],
+                [61, 120, 21, 'business_mon_sat', 14, 'Fraccion 14 + remanente 7'],
+                [121, 240, 28, 'business_mon_sat', 14, 'Fracciones 14 + 14'],
+                [241, null, 35, 'business_mon_sat', 14, 'Fracciones 14 + 14 + remanente 7'],
+            ],
+            'UTEDYC-2023' => [
+                [0, 60, 16, 'calendar', 7, 'Hasta 5 años inclusive'],
+                [61, 120, 21, 'calendar', 7, 'Mas de 5 y hasta 10 años'],
+                [121, 240, 28, 'calendar', 7, 'Mas de 10 y hasta 20 años'],
+                [241, null, 35, 'calendar', 7, 'Mas de 20 años'],
+            ],
+            'SANIDAD-122-75' => [
+                [0, 60, 14, 'calendar', 7, 'Hasta 5 años inclusive'],
+                [61, 120, 21, 'calendar', 7, 'Mas de 5 y hasta 10 años'],
+                [121, 240, 28, 'calendar', 7, 'Mas de 10 y hasta 20 años'],
+                [241, null, 35, 'calendar', 7, 'Mas de 20 años'],
+            ],
+        ];
+        $insConv = $pdo->prepare('INSERT INTO collective_agreements
+            (code, name, description, jurisdiction, legal_reference, period_start_month, period_start_day,
+             notice_days, start_rule, split_policy, minimum_request_days, is_active)
+            VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, 7.0, 1)');
+        $updConv = $pdo->prepare('UPDATE collective_agreements
+            SET name = ?, description = ?, jurisdiction = ?, legal_reference = ?, period_start_month = 1,
+                period_start_day = 1, notice_days = ?, start_rule = ?, split_policy = ?,
+                minimum_request_days = 7.0, is_active = 1
+            WHERE id = ?');
+        $insRegla = $pdo->prepare('INSERT INTO collective_agreement_rules
             (agreement_id, min_months, max_months, days_entitled, day_count_mode,
              allows_split, allows_carryover, min_consecutive_days, notes)
-            VALUES (?, ?, ?, ?, 'calendar', 1, 1, 7, ?)");
-        foreach ($reglas as [$min, $max, $dias, $nota]) {
-            $st->execute([$aid, $min, $max, $dias, $nota]);
+            VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)');
+        $updRegla = $pdo->prepare('UPDATE collective_agreement_rules
+            SET max_months = ?, days_entitled = ?, day_count_mode = ?, allows_split = 1,
+                allows_carryover = 1, min_consecutive_days = ?, notes = ?
+            WHERE id = ?');
+        foreach ($convenios as [$code, $name, $desc, $juris, $legal, $notice, $startRule, $splitPolicy]) {
+            $aid = $scalar('SELECT id FROM collective_agreements WHERE code = ?', [$code]);
+            if ($aid === null) {
+                $insConv->execute([$code, $name, $desc, $juris, $legal, $notice, $startRule, $splitPolicy]);
+                $aid = $pdo->lastInsertId();
+            } else {
+                $updConv->execute([$name, $desc, $juris, $legal, $notice, $startRule, $splitPolicy, $aid]);
+            }
+            $aid = (int)$aid;
+            foreach ($escalas[$code] as [$min, $max, $dias, $modo, $minConsec, $nota]) {
+                $rid = $scalar('SELECT id FROM collective_agreement_rules WHERE agreement_id = ? AND min_months = ?', [$aid, $min]);
+                if ($rid === null) {
+                    $insRegla->execute([$aid, $min, $max, $dias, $modo, $minConsec, $nota]);
+                } else {
+                    $updRegla->execute([$max, $dias, $modo, $minConsec, $nota, (int)$rid]);
+                }
+            }
+            if ($code === 'FARMACIA-430-05') {
+                echo "                (FARMACIA-430-05 = agreement_id $aid en esta base)\n";
+            }
         }
-        echo "                (agreement_id = $aid en esta base)\n";
     });
 
 echo "\nListo. Ahora: php scripts/verificar_esquema_vps.php\n";

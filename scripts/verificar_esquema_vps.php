@@ -93,8 +93,11 @@ $pasos = [
                 return false;
             }
         }],
-    ['Vacaciones v2 (balances)', 'mysql BASE < migration_vacation_management_v2.sql (paso 38)',
-        fn() => $tab('vacation_balance_periods')],
+    ['Vacaciones v2 (balances)', 'php scripts/aplicar_pendientes_vps.php  (en MariaDB: mysql BASE < migration_vacation_management_v2.sql)',
+        fn() => $tab('vacation_balance_periods')
+            && $col('vacation_balance_periods', 'balance_type')
+            && $col('vacation_balance_periods', 'adjustment_days')
+            && $col('vacation_balance_movements', 'operation_key')],
     ['Legajo ampliado (assignments/addresses/coverages)', 'mysql BASE < migration_employee_record_complete.sql (paso 39)',
         fn() => $tab('employee_company_assignments')],
     ['Catálogo de obras sociales', 'php scripts/apply_health_insurers_catalog.php',
