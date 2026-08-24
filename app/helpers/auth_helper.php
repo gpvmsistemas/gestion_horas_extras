@@ -40,6 +40,38 @@ function adminBranchId() {
 }
 
 /**
+ * Modo "todas las empresas del grupo" en el contexto operativo.
+ * Solo para perfiles administrador/rrhh (nunca encargados/supervisores).
+ */
+function adminAllCompaniesActive() {
+    if (empty($_SESSION['admin_company_all']) || isSupervisor()) {
+        return false;
+    }
+    if (function_exists('access_control_ready') && access_control_ready()
+        && !in_array(access_current_role(), ['administrador', 'rrhh'], true)) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Empresas del contexto operativo: [empresa activa] o, con el modo "Todas"
+ * activo, todas las del grupo organizacional de la empresa activa.
+ */
+function adminCompanyIds() {
+    $anchor = adminCompanyId();
+    if ($anchor > 0 && adminAllCompaniesActive()
+        && function_exists('org_group_of_company') && function_exists('org_group_company_ids')) {
+        $group = org_group_of_company($anchor);
+        $ids = $group !== '' ? array_map('intval', org_group_company_ids($group)) : [];
+        if ($ids) {
+            return $ids;
+        }
+    }
+    return $anchor > 0 ? [$anchor] : [];
+}
+
+/**
  * Exige empresa en sesión; redirige si falta.
  */
 function requireAdminCompany($redirectTo = 'admin/users') {

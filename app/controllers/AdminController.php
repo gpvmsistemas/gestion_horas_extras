@@ -64,6 +64,21 @@ class AdminController {
             redirect('admin/dashboard');
         }
         csrf_verify();
+        // Modo "Todas las empresas" del grupo: mantiene la empresa activa como
+        // ancla y marca el contexto global (las pantallas que agrupan usan
+        // adminCompanyIds(); el resto sigue sobre el ancla).
+        if (($_POST['company_id'] ?? '') === 'all') {
+            if (adminCompanyId() <= 0) {
+                $_SESSION['flash_error'] = 'Elegí primero una empresa de tu organización.';
+            } elseif (isSupervisor()) {
+                $_SESSION['flash_error'] = 'Tu perfil no permite el contexto global.';
+            } else {
+                $_SESSION['admin_company_all'] = 1;
+                unset($_SESSION['admin_branch_id']);
+                $_SESSION['flash_success'] = 'Contexto: todas las empresas de tu organización.';
+            }
+            redirect(admin_company_switch_return_path(trim($_POST['return_url'] ?? '')));
+        }
         $companyId = (int)($_POST['company_id'] ?? 0);
         // Suite P&M: el usuario RRHH solo puede navegar empresas de SU organización.
         if (function_exists('org_locked_group') && org_locked_group() !== ''
@@ -77,6 +92,7 @@ class AdminController {
         if (!setAdminActiveCompany($companyId)) {
             $_SESSION['flash_error'] = 'Empresa no válida.';
         } else {
+            unset($_SESSION['admin_company_all']); // elegir una empresa puntual apaga el modo Todas
             $branchId = (int)($_POST['branch_id'] ?? 0);
             if ($branchId > 0 && !$this->companyModel->getBranchByIdForCompany($branchId, $companyId, true)) {
                 $_SESSION['flash_error'] = 'La sucursal no pertenece a la empresa seleccionada.';
@@ -1165,6 +1181,10 @@ class AdminController {
         } elseif (!empty($modernaIds) && in_array($companyFilter, $modernaIds, true)) {
             $companyFilter = (adminCompanyId() > 0 && !in_array(adminCompanyId(), $modernaIds, true)) ? adminCompanyId() : 0;
         }
+        // Contexto "Todas las empresas": el listado abre agrupado por defecto.
+        if (function_exists('adminAllCompaniesActive') && adminAllCompaniesActive() && !isset($_GET['company_id'])) {
+            $companyFilter = 0;
+        }
         $branchFilter = $companyFilter > 0 ? adminBranchId() : 0;
         $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null, $branchFilter);
         $recordReady = $this->employeeRecordModel->isReady();
@@ -1615,7 +1635,10 @@ class AdminController {
             }
         }
         $companyId = requireAdminCompany('admin/requests');
-        $allRequests = $this->requestModel->getAllRequestsByCompany($companyId);
+        $ctxIds = function_exists('adminCompanyIds') ? adminCompanyIds() : [$companyId];
+        $allRequests = count($ctxIds) > 1
+            ? $this->requestModel->getAllRequestsByCompanies($ctxIds)
+            : $this->requestModel->getAllRequestsByCompany($companyId);
         if (isSupervisor()) {
             $allRequests = filterStaffRowsByUserArea($allRequests);
         }
@@ -1722,7 +1745,7 @@ class AdminController {
             redirect('admin/requests');
         }
 
-        $request = $this->requestModel->getRequestByIdForCompany($id, $companyId);
+        $request = $this->requestModel->getRequestByIdForCompanies($id, adminCompanyIds());
         if (!$request) {
             $_SESSION['flash_error'] = 'Solicitud no encontrada.';
             redirect('admin/requests');
@@ -1943,7 +1966,7 @@ class AdminController {
         csrf_verify();
         $companyId = requireAdminCompany('admin/requests');
         $id = (int)$id;
-        $request = $this->requestModel->getRequestByIdForCompany($id, $companyId);
+        $request = $this->requestModel->getRequestByIdForCompanies($id, adminCompanyIds());
         if (!$request) {
             $_SESSION['flash_error'] = 'Solicitud no encontrada.';
             redirect('admin/requests');
@@ -1964,7 +1987,7 @@ class AdminController {
         csrf_verify();
         $companyId = requireAdminCompany('admin/requests');
         $id = (int)$id;
-        $request = $this->requestModel->getRequestByIdForCompany($id, $companyId);
+        $request = $this->requestModel->getRequestByIdForCompanies($id, adminCompanyIds());
         if (!$request) {
             $_SESSION['flash_error'] = 'Solicitud no encontrada.';
             redirect('admin/requests');

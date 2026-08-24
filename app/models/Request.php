@@ -89,6 +89,32 @@ class Request {
         return $this->db->resultSet();
     }
 
+    /** Versión multi-empresa (contexto "Todas las empresas del grupo"). */
+    public function getAllRequestsByCompanies(array $companyIds) {
+        $in = implode(',', array_map('intval', $companyIds ?: [0]));
+        $sql = "SELECT r.*, u.full_name, u.profile_picture, rt.name AS type_name, rt.color, c.name AS company_name
+                FROM requests r
+                JOIN users u ON r.user_id = u.id
+                JOIN request_types rt ON r.request_type_id = rt.id
+                LEFT JOIN companies c ON c.id = u.company_id
+                WHERE u.company_id IN ($in)
+                ORDER BY FIELD(r.status, 'Pendiente', 'Aprobado', 'Rechazado'), r.start_date DESC";
+        $this->db->query($sql);
+        return $this->db->resultSet();
+    }
+
+    /** Una solicitud si pertenece a alguna de las empresas del contexto. */
+    public function getRequestByIdForCompanies($id, array $companyIds) {
+        $in = implode(',', array_map('intval', $companyIds ?: [0]));
+        $this->db->query("SELECT r.*, u.full_name, u.company_id, rt.name AS type_name
+                FROM requests r
+                JOIN users u ON r.user_id = u.id
+                JOIN request_types rt ON r.request_type_id = rt.id
+                WHERE r.id = :id AND u.company_id IN ($in)");
+        $this->db->bind(':id', (int)$id);
+        return $this->db->single();
+    }
+
     private static function pendingQueueWhere() {
         return "r.status = 'Pendiente' AND r.admin_dismissed_at IS NULL";
     }
