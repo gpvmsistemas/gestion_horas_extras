@@ -63,6 +63,15 @@ function setAdminActiveCompany($companyId) {
     if (!$companyModel->getById($companyId)) {
         return false;
     }
+    // Usuario bloqueado a una organización (employee_group): jamás puede
+    // activar una empresa del otro grupo, por NINGÚN camino (fichas, selector,
+    // simulador). Complementa la guardia del selector de Contexto.
+    if (function_exists('org_locked_group') && function_exists('org_group_of_company')) {
+        $locked = org_locked_group();
+        if ($locked !== '' && org_group_of_company($companyId) !== $locked) {
+            return false;
+        }
+    }
     if (function_exists('access_control_ready') && access_control_ready()
         && !access_user_can_manage_company((int)$_SESSION['user_id'], $companyId)) {
         return false;
