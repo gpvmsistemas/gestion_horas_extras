@@ -18,13 +18,17 @@ $profileQs = function ($extra = []) use ($roadmapMonth, $userId) {
         </div>
     </div>
 
-    <?php if (!empty($data['ecofarma_commissions_url'])): ?>
+    <?php // Operador Ecofarma: concepto exclusivo de Paviotti — se decide por la
+          // organización del EMPLEADO de la ficha, no por la del admin logueado.
+          $_fichaEsModerna = function_exists('org_group_of_company')
+              && org_group_of_company((int)($data['user']->company_id ?? 0)) === 'moderna'; ?>
+    <?php if (!$_fichaEsModerna && !empty($data['ecofarma_commissions_url'])): ?>
     <div class="alert alert-light border small py-2 mb-3">
         <i class="fas fa-pills me-1 text-primary"></i>
         Operador Ecofarma: <strong><?php echo htmlspecialchars($data['user']->plex_operator_name); ?></strong>
         <a href="<?php echo htmlspecialchars($data['ecofarma_commissions_url']); ?>" class="ms-2">Ver comisiones</a>
     </div>
-    <?php elseif (!empty($data['plex_operator_ready'])): ?>
+    <?php elseif (!$_fichaEsModerna && !empty($data['plex_operator_ready'])): ?>
     <p class="small text-muted mb-3">Vinculá el operador Ecofarma en <a href="<?php echo URLROOT; ?>/admin/editUser/<?php echo $userId; ?>">editar usuario</a>.</p>
     <?php endif; ?>
 

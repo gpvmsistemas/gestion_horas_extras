@@ -244,7 +244,9 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
                         <i class="fas fa-link me-1"></i> Gestionar mapeos en la página de mapeo
                     </a>
 
-                    <?php if (!empty($data['user']) && (new User())->isPlexOperatorReady()): ?>
+                    <?php if (!empty($data['user']) && (new User())->isPlexOperatorReady()
+                        && (!function_exists('org_group_of_company')
+                            || org_group_of_company((int)($data['user']->company_id ?? 0)) !== 'moderna')): ?>
                     <hr class="my-4">
                     <h6 class="mb-3 text-muted">Ecofarma — operador API</h6>
                     <div class="mb-3">
