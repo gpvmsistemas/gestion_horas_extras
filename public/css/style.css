@@ -383,6 +383,7 @@ body {
     gap: .7rem;
     padding: .55rem .85rem;
     border-radius: .5rem;
+    background: transparent; /* sin esto queda el gris de <button> del navegador sobre el sidebar oscuro */
     color: var(--sidebar-text);
     text-decoration: none;
     font-size: .855rem;
@@ -1218,6 +1219,16 @@ body.sidebar-collapsed .sidebar-logout-btn {
 .btn-outline-primary:hover {
     background: var(--clr-primary);
     border-color: var(--clr-primary);
+}
+
+/* Estado seleccionado (radios/checks tipo botón): sin esto cae al azul
+   default de Bootstrap, ignorando el tema de la organización. */
+.btn-check:checked + .btn-outline-primary,
+.btn-outline-primary:active,
+.btn-outline-primary.active {
+    background: var(--clr-primary);
+    border-color: var(--clr-primary);
+    color: #fff;
 }
 
 .btn-pulse {
@@ -2117,6 +2128,14 @@ div.dt-buttons .btn.btn-info:hover {
 }
 
 .page-content .btn-outline-primary:hover {
+    background: var(--clr-admin);
+    border-color: var(--clr-admin);
+    color: #fff;
+}
+
+.page-content .btn-check:checked + .btn-outline-primary,
+.page-content .btn-outline-primary:active,
+.page-content .btn-outline-primary.active {
     background: var(--clr-admin);
     border-color: var(--clr-admin);
     color: #fff;
@@ -5134,6 +5153,8 @@ body.portal-casapav .emp-bnav-item--logout:hover {
 .app-staff .page-content .btn-primary:hover { background:linear-gradient(135deg,var(--ui-blue-dark),var(--ui-blue))!important; box-shadow:0 7px 18px color-mix(in srgb,var(--ui-blue) 36%,transparent); transform:translateY(-1px); }
 .app-staff .page-content .btn-outline-primary { color:var(--ui-blue); border-color:var(--ui-blue-soft); }
 .app-staff .page-content .btn-outline-primary:hover { color:#fff; background:var(--ui-blue); border-color:var(--ui-blue); }
+.app-staff .page-content .btn-check:checked + .btn-outline-primary,
+.app-staff .page-content .btn-outline-primary:active { color:#fff; background:var(--ui-blue); border-color:var(--ui-blue); }
 .app-staff .page-content .btn-secondary,.app-staff .page-content .btn-light { color:#475569; background:#f8fafc; border-color:#cbd5e1; }
 
 /* Identidad visual de empresa: previsualización breve en su editor. */
