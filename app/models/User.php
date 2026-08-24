@@ -400,9 +400,9 @@ class User {
             $data['full_name'],
             $data['role'],
             $companyId,
-            $data['hourly_rate'],
-            $data['weekly_hour_limit'],
-            $data['vacation_days_available'] ?? 0,
+            is_numeric($data['hourly_rate'] ?? null) ? $data['hourly_rate'] : 0,
+            is_numeric($data['weekly_hour_limit'] ?? null) ? $data['weekly_hour_limit'] : 0,
+            is_numeric($data['vacation_days_available'] ?? null) ? $data['vacation_days_available'] : 0,
         ];
 
         if ($areaReady) {
@@ -456,7 +456,7 @@ class User {
             ]);
             $vals = array_merge($vals, [
                 $data['marital_status'] ?? null,
-                $data['children_count'] ?? null,
+                is_numeric($data['children_count'] ?? null) ? (int)$data['children_count'] : null,
                 $data['emergency_contact_relationship'] ?? null,
                 ($data['hr_notes'] ?? '') !== '' ? $data['hr_notes'] : null,
             ]);

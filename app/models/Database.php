@@ -26,6 +26,12 @@ class Database {
         try{
             $this->dbh = new PDO($dsn, $this->user, $this->pass, $options);
             $this->dbh->exec("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+            // Modo SQL de la sesión igual al entorno donde se validó la suite
+            // (MariaDB sin STRICT_TRANS_TABLES). En MySQL 8 el default estricto
+            // + ONLY_FULL_GROUP_BY convierte en fatales ('' en columnas
+            // numéricas, GROUP BY parciales) lo que acá es comportamiento
+            // esperado. Sesión solamente: no afecta a otros consumidores.
+            $this->dbh->exec("SET SESSION sql_mode = 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION'");
         } catch(PDOException $e){
             $this->error = $e->getMessage();
             die('Error de Conexión: ' . $this->error);
