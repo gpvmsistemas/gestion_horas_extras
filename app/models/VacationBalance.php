@@ -230,6 +230,12 @@ class VacationBalance {
         $where = ['1=1'];
         $having = [];
         $bind = [];
+        // Aislamiento organizacional: limita el reporte a las empresas del
+        // grupo del admin (lo inyecta vacationReportFilters cuando hay lock).
+        if (!empty($filters['company_ids']) && is_array($filters['company_ids'])) {
+            $ids = array_map('intval', $filters['company_ids']);
+            $where[] = 'u.company_id IN (' . implode(',', $ids ?: [0]) . ')';
+        }
         foreach (['company_id'=>'u.company_id','area_id'=>'u.area_id'] as $key=>$column) {
             if (!empty($filters[$key])) {
                 $where[] = $column . ' = :' . $key;

@@ -401,8 +401,23 @@ class VacationAdminController {
         $balanceStatusInput = $_GET['balance_status'] ?? 'with';
         $active = in_array($activeInput, ['active', 'inactive', 'all'], true) ? $activeInput : 'active';
         $balanceStatus = in_array($balanceStatusInput, ['with', 'without', 'both'], true) ? $balanceStatusInput : 'with';
+        // Aislamiento organizacional: el reporte (filas, stats y CSV) queda
+        // limitado a las empresas del grupo del admin, y un company_id ajeno
+        // por URL se descarta.
+        $orgIds = [];
+        if (function_exists('org_locked_group') && function_exists('org_group_company_ids')) {
+            $locked = org_locked_group();
+            if ($locked !== '') {
+                $orgIds = array_map('intval', org_group_company_ids($locked));
+            }
+        }
+        $companyId = (int)($_GET['company_id'] ?? 0);
+        if ($orgIds && $companyId && !in_array($companyId, $orgIds, true)) {
+            $companyId = 0;
+        }
         return [
-            'company_id' => (int)($_GET['company_id'] ?? 0),
+            'company_ids' => $orgIds,
+            'company_id' => $companyId,
             'agreement_id' => (int)($_GET['agreement_id'] ?? 0),
             'area_id' => (int)($_GET['area_id'] ?? 0),
             'search' => trim($_GET['search'] ?? ''),

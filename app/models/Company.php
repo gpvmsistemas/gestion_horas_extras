@@ -19,7 +19,19 @@ class Company {
         } else {
             $this->db->query('SELECT * FROM companies ORDER BY name ASC');
         }
-        return $this->db->resultSet();
+        $rows = $this->db->resultSet();
+        // Aislamiento organizacional: un usuario bloqueado a un grupo solo ve
+        // las empresas de SU grupo en cualquier pantalla que enumere empresas
+        // (filtros, selectores, reportes). Sin sesión (CLI) no filtra.
+        if (function_exists('org_locked_group')) {
+            $locked = org_locked_group();
+            if ($locked !== '') {
+                $rows = array_values(array_filter($rows, function ($c) use ($locked) {
+                    return !isset($c->organization_group) || $c->organization_group === $locked;
+                }));
+            }
+        }
+        return $rows;
     }
 
     public function getById($id) {
