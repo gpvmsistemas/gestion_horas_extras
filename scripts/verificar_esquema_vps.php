@@ -59,8 +59,8 @@ $pasos = [
         fn() => $col('users', 'branch_id')],
     ['users.attendance_control_mode', 'mysql BASE < migration_attendance_control_mode.sql',
         fn() => $col('users', 'attendance_control_mode')],
-    ['Relojes por sucursal (clock_devices)', 'mysql BASE < migration_clock_devices_scope.sql',
-        fn() => $tab('clock_devices')],
+    ['Relojes por sucursal (clock_devices)', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $tab('clock_devices') && $tab('clock_device_branches') && $tab('user_clock_device_mappings')],
     ['Control de acceso (user_access_scopes)', 'mysql BASE < migration_access_control_scopes.sql  (o php scripts/apply_access_control_migration.php)',
         fn() => $tab('user_access_scopes')],
 
@@ -79,8 +79,10 @@ $pasos = [
     ['Legajo, convenios y vacaciones', null, null],
     ['Convenios colectivos (CCT)', 'mysql BASE < migration_collective_agreements.sql (paso 22 del paquete hosting)',
         fn() => $tab('collective_agreements')],
-    ['Escala CCT 430/05 Farmacia Córdoba', '(la trae migration_collective_agreements.sql; verificar 4 reglas del agreement 2)',
-        fn() => $cnt('SELECT COUNT(*) n FROM collective_agreement_rules WHERE agreement_id = 2') >= 4],
+    ['Escala CCT 430/05 Farmacia Córdoba', 'php scripts/aplicar_pendientes_vps.php',
+        fn() => $cnt("SELECT COUNT(*) n FROM collective_agreement_rules r
+            JOIN collective_agreements a ON a.id = r.agreement_id
+            WHERE a.code = 'FARMACIA-430-05'") >= 4],
     ['Tipos vacation/leave en employee_schedules', 'mysql BASE < migration_schedule_vacation_types.sql (paso 23)',
         function () use ($db) {
             try {
@@ -132,4 +134,6 @@ foreach ($pasos as $p) {
 }
 echo "\n" . ($pend === 0
     ? "ESQUEMA COMPLETO: listo para los pasos de datos (limpieza → nómina → vacaciones).\n"
-    : "$pend paso(s) PENDIENTES — aplicalos EN EL ORDEN LISTADO y volvé a correr este verificador.\n");
+    : "$pend paso(s) PENDIENTES — aplicalos EN EL ORDEN LISTADO y volvé a correr este verificador.\n"
+      . "En MySQL (VPS) los .sql con ADD COLUMN IF NOT EXISTS fallan con error 1064:\n"
+      . "usá  php scripts/aplicar_pendientes_vps.php  que aplica todo lo pendiente de una vez.\n");

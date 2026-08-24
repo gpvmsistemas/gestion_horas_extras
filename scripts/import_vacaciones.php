@@ -8,7 +8,7 @@
  *  - vacation_balance_periods: período anual (label del informe, p. ej. 2025)
  *    con days_entitled (asignados), adjustment_days (saldo inicial de arrastre),
  *    days_taken y days_pending (saldo del informe). El snapshot referencia el
- *    CCT 430/05 Farmacia Córdoba (agreement_id=2, la escala que usa el informe,
+ *    CCT 430/05 Farmacia Córdoba (code FARMACIA-430-05, la escala del informe,
  *    antigüedad desde la FECHA DE INGRESO) sin asociar el convenio al usuario.
  *  - vacation_balance_movements: accrual + opening_balance (si hay arrastre) +
  *    un take por período tomado, todos con operation_key idempotente
@@ -33,8 +33,6 @@ if (file_exists($root . '/app/config/config.local.php')) {
 }
 require $root . '/app/models/Database.php';
 
-const AGREEMENT_FARMACIA = 2; // CCT 430/05 Empleados de Farmacia Córdoba
-
 $args = array_values(array_filter(array_slice($argv, 1), fn($a) => strpos($a, '--') !== 0));
 $jsonPath = $args[0] ?? '';
 $ejecutar = in_array('--ejecutar', $argv, true);
@@ -48,6 +46,16 @@ if (empty($empleados)) {
 }
 
 $db = new Database();
+
+// CCT 430/05 Empleados de Farmacia Córdoba, resuelto por su código único:
+// el id numérico varía según el entorno (en el VPS el catálogo base solo
+// trae el CEC, la escala de Farmacia la siembra aplicar_pendientes_vps.php).
+$db->query("SELECT id FROM collective_agreements WHERE code = 'FARMACIA-430-05'");
+$agreementFarmacia = (int)($db->single()->id ?? 0);
+if ($agreementFarmacia <= 0) {
+    die("No existe el CCT 430/05 (code FARMACIA-430-05) en collective_agreements.\nAplicalo con: php scripts/aplicar_pendientes_vps.php\n");
+}
+define('AGREEMENT_FARMACIA', $agreementFarmacia);
 
 // Actor de los movimientos: primer admin del sistema.
 $db->query("SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1");

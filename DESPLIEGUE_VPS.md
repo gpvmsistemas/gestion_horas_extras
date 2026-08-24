@@ -89,6 +89,15 @@ lo dice, en orden y con el comando exacto de cada pendiente:
 php scripts/verificar_esquema_vps.php
 ```
 
+> **VPS con MySQL (no MariaDB)**: los `.sql` que usan
+> `ADD COLUMN IF NOT EXISTS` fallan con error 1064. En ese caso, un solo
+> comando aplica todo lo pendiente en el orden correcto (idempotente,
+> re-ejecutable, no pisa datos cargados):
+> ```bash
+> mysql BASE < migration_ecofarma_branches.sql   # solo si falta company_branches
+> php scripts/aplicar_pendientes_vps.php
+> ```
+
 Aplicar cada `PENDIENTE` **en el orden listado** y volver a correr el
 verificador hasta ver `ESQUEMA COMPLETO`. Los grupos, en orden:
 
