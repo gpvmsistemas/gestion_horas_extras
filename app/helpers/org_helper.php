@@ -161,7 +161,21 @@ function org_recruiting_groups() {
 }
 
 function org_recruiting_enabled($group = null) {
-    return in_array($group ?: org_current_group(), org_recruiting_groups(), true);
+    // Fail-closed: si llega un grupo explícito (aunque sea '', p. ej. un
+    // lookup fallido) se evalúa ESE grupo — nunca se cae al de la sesión.
+    if ($group !== null) {
+        return in_array($group, org_recruiting_groups(), true);
+    }
+    return in_array(org_current_group(), org_recruiting_groups(), true);
+}
+
+/**
+ * Pipeline por defecto de las vacantes: los estados del sistema viejo de
+ * Moderna (nuevo→revisado→entrevista→rechazado/contratado). Cada vacante
+ * puede personalizarlo igual (pipeline_json).
+ */
+function org_default_pipeline() {
+    return ['nuevo', 'revisado', 'entrevista', 'rechazado', 'contratado'];
 }
 
 /** Identidad del portal público de vacantes por organización. */

@@ -19,6 +19,9 @@ body{background:#f4f6f9}
     <h1 class="display-5 fw-bold">Trabajá con nosotros</h1>
     <p class="lead text-secondary">Elegí la organización para ver sus búsquedas abiertas.</p>
   </header>
+  <?php if (!$d['groups']): ?>
+  <p class="text-center text-secondary">No hay portales de búsquedas habilitados en este momento.</p>
+  <?php endif; ?>
   <div class="row g-4 justify-content-center">
     <?php foreach ($d['groups'] as $g): $b = org_careers_brand($g); ?>
     <div class="col-md-5">

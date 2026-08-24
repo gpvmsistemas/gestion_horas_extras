@@ -22,9 +22,43 @@ class HrSuite {
     public function expirations($companyId){return $this->query('SELECT ee.*,et.name type_name,u.full_name,DATEDIFF(ee.expires_on,CURDATE()) days_left FROM employee_expirations ee JOIN expiration_types et ON et.id=ee.expiration_type_id JOIN users u ON u.id=ee.user_id WHERE ee.company_id=? ORDER BY ee.expires_on',[$companyId]);}
     public function expirationTypes($companyId){return $this->query('SELECT * FROM expiration_types WHERE is_active=1 AND(company_id IS NULL OR company_id=?) ORDER BY name',[$companyId]);}
     public function saveExpiration($companyId,$actor,$d){$ok=$this->execute('INSERT INTO employee_expirations(user_id,company_id,branch_id,expiration_type_id,reference_no,issued_on,expires_on,responsible_user_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[(int)$d['user_id'],$companyId,(int)($d['branch_id']??0)?:null,(int)$d['expiration_type_id'],trim($d['reference_no']??'')?:null,trim($d['issued_on']??'')?:null,$d['expires_on'],(int)($d['responsible_user_id']??0)?:null,trim($d['notes']??'')?:null,$actor]);if($ok)$this->audit->record('expiration.created','employee_expiration',$this->db->lastInsertId(),null,$d,'',$companyId);return $ok;}
-    public function vacancies($companyId=0,$public=false,$orgGroup=''){$sql='SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name,(SELECT COUNT(*) FROM job_applications ja WHERE ja.vacancy_id=jv.id) application_count FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE 1=1';$p=[];if($companyId){$sql.=' AND jv.company_id=?';$p[]=$companyId;}if($orgGroup!==''){$sql.=' AND c.organization_group=?';$p[]=$orgGroup;}if($public)$sql.=" AND jv.status='published' AND(jv.closes_at IS NULL OR jv.closes_at>=CURDATE())";$sql.=' ORDER BY jv.created_at DESC';return $this->query($sql,$p);}
-    public function vacancyBySlug($slug,$anyStatus=false){return $this->one("SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE jv.slug=?".($anyStatus?'':" AND jv.status='published'"),[$slug]);}
+    public function vacancies($companyId=0,$public=false,$orgGroup=''){$sql='SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name,(SELECT COUNT(*) FROM job_applications ja WHERE ja.vacancy_id=jv.id) application_count FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE 1=1';$p=[];if($companyId){$sql.=' AND jv.company_id=?';$p[]=$companyId;}if($orgGroup!==''){$sql.=' AND c.organization_group=?';$p[]=$orgGroup;}if($public)$sql.=" AND jv.status='published' AND(jv.closes_at IS NULL OR jv.closes_at>=CURDATE()) AND jv.slug NOT LIKE 'espontanea-%'";$sql.=' ORDER BY jv.created_at DESC';return $this->query($sql,$p);}
+    public function vacanciesForCompanies(array $companyIds){if(!$companyIds)return [];$in=implode(',',array_map('intval',$companyIds));return $this->query("SELECT jv.*,c.name company_name,b.name branch_name,(SELECT COUNT(*) FROM job_applications ja WHERE ja.vacancy_id=jv.id) application_count FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE jv.company_id IN ($in) ORDER BY jv.created_at DESC");}
+    /**
+     * Candidatos/postulaciones de TODAS las sociedades de la organización
+     * (panel centrado en candidatos, port del panel del sistema viejo de
+     * Moderna). $f: q (nombre/email), estado, vacante_id, desde, hasta.
+     */
+    public function applicationsOrg(array $companyIds,array $f=[],$page=1,$per=50){
+        if(!$companyIds)return ['rows'=>[],'total'=>0,'page'=>1,'pages'=>1];
+        $in=implode(',',array_map('intval',$companyIds));
+        $where="jv.company_id IN ($in)";$p=[];
+        if(($f['q']??'')!==''){$where.=' AND (c.full_name LIKE ? OR c.email LIKE ?)';$like='%'.$f['q'].'%';$p[]=$like;$p[]=$like;}
+        if(($f['estado']??'')!==''){$where.=' AND ja.current_stage=?';$p[]=$f['estado'];}
+        if((int)($f['vacante_id']??0)>0){$where.=' AND ja.vacancy_id=?';$p[]=(int)$f['vacante_id'];}
+        if(($f['desde']??'')!==''){$where.=' AND ja.created_at>=?';$p[]=$f['desde'].' 00:00:00';}
+        if(($f['hasta']??'')!==''){$where.=' AND ja.created_at<=?';$p[]=$f['hasta'].' 23:59:59';}
+        $base='FROM job_applications ja JOIN candidates c ON c.id=ja.candidate_id JOIN job_vacancies jv ON jv.id=ja.vacancy_id';
+        $total=(int)($this->one("SELECT COUNT(*) n $base WHERE $where",$p)->n??0);
+        $pages=max(1,(int)ceil($total/$per));$page=min(max(1,(int)$page),$pages);
+        $rows=$this->query("SELECT ja.*,c.full_name,c.email,c.phone,jv.title vacancy_title,jv.slug vacancy_slug,jv.pipeline_json,jv.company_id $base WHERE $where ORDER BY ja.created_at DESC LIMIT ".(int)$per.' OFFSET '.(int)(($page-1)*$per),$p);
+        return ['rows'=>$rows,'total'=>$total,'page'=>$page,'pages'=>$pages];
+    }
+    /** KPIs del panel (organización completa), estilo panel Moderna. */
+    public function recruitingKpis(array $companyIds){
+        if(!$companyIds)return ['total'=>0,'nuevos'=>0,'entrevista'=>0,'contratados'=>0,'abiertas'=>0];
+        $in=implode(',',array_map('intval',$companyIds));
+        $r=$this->one("SELECT COUNT(*) total,
+            SUM(ja.current_stage IN ('nuevo','received')) nuevos,
+            SUM(ja.current_stage IN ('entrevista','interview')) entrevista,
+            SUM(ja.status='hired') contratados
+            FROM job_applications ja JOIN job_vacancies jv ON jv.id=ja.vacancy_id WHERE jv.company_id IN ($in)");
+        $a=$this->one("SELECT COUNT(*) n FROM job_vacancies WHERE company_id IN ($in) AND status='published' AND slug NOT LIKE 'espontanea-%'");
+        return ['total'=>(int)($r->total??0),'nuevos'=>(int)($r->nuevos??0),'entrevista'=>(int)($r->entrevista??0),'contratados'=>(int)($r->contratados??0),'abiertas'=>(int)($a->n??0)];
+    }
+    public function vacancyBySlug($slug,$anyStatus=false){return $this->one("SELECT jv.*,c.name company_name,c.organization_group org_group,b.name branch_name FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id LEFT JOIN company_branches b ON b.id=jv.branch_id WHERE jv.slug=?".($anyStatus?'':" AND jv.status='published' AND (jv.closes_at IS NULL OR jv.closes_at>=CURDATE())"),[$slug]);}
     public function vacancyById($id,$companyId){return $this->one('SELECT jv.* FROM job_vacancies jv WHERE jv.id=? AND jv.company_id=?',[(int)$id,(int)$companyId]);}
+    public function vacancyByIdIn($id,array $companyIds){if(!$companyIds)return null;$in=implode(',',array_map('intval',$companyIds));return $this->one("SELECT jv.*,c.name company_name FROM job_vacancies jv JOIN companies c ON c.id=jv.company_id WHERE jv.id=? AND jv.company_id IN ($in)",[(int)$id]);}
     /**
      * Postulaciones con filtros server-side y paginación (port del panel del
      * Flask viejo). $f: q (nombre/email), stage, status. Devuelve

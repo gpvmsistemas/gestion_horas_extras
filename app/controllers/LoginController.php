@@ -105,7 +105,13 @@ class LoginController {
         $_SESSION['user_profile_picture'] = $user->profile_picture ?? 'default.png';
         if (function_exists('access_control_ready') && access_control_ready()) {
             $scope = (new AccessControl())->currentScopeForUser((int)$user->id);
-            if ($scope) {
+            // El scope primario solo fija la empresa activa si pertenece a la
+            // organización del usuario (candado, mismo criterio que
+            // setAdminActiveCompany y access_set_active_scope).
+            $scopeOrgOk = $scope && (!function_exists('org_group_of_company')
+                || org_group_of_company((int)$scope->company_id) === $_SESSION['user_employee_group']
+                || org_group_of_company((int)$scope->company_id) === '');
+            if ($scope && $scopeOrgOk) {
                 $_SESSION['access_scope_id'] = (int)$scope->id;
                 $_SESSION['user_company_id'] = (int)$scope->company_id;
                 $_SESSION['user_branch_id'] = (int)($scope->branch_id ?? 0);

@@ -42,6 +42,13 @@ function access_set_active_scope($scopeId) {
     if (!isLoggedIn() || !access_control_ready()) return false;
     $scope = (new AccessControl())->getScope((int)$scopeId, (int)$_SESSION['user_id']);
     if (!$scope || !(int)$scope->is_active) return false;
+    // Candado organizacional: un scope sobre una empresa del otro grupo
+    // (asignación errónea o heredada de antes de la bifurcación) no puede
+    // activar esa empresa. Mismo criterio que setAdminActiveCompany().
+    if (function_exists('org_locked_group') && function_exists('org_group_of_company')) {
+        $locked = org_locked_group();
+        if ($locked !== '' && org_group_of_company((int)$scope->company_id) !== $locked) return false;
+    }
     $_SESSION['access_scope_id'] = (int)$scope->id;
     $_SESSION['user_company_id'] = (int)$scope->company_id;
     $_SESSION['user_branch_id'] = (int)($scope->branch_id ?? 0);

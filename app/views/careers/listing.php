@@ -24,10 +24,19 @@
     <?php if (!$d['vacancies']): ?>
     <div class="col-12">
       <div class="card careers-card"><div class="card-body p-5 text-center text-secondary">
-        No hay búsquedas abiertas en este momento. Volvé a visitarnos pronto.
+        No hay búsquedas abiertas en este momento. Igual podés dejarnos tu CV abajo.
       </div></div>
     </div>
     <?php endif; ?>
+  </div>
+  <div class="card careers-card mt-4">
+    <div class="card-body p-4 d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <h2 class="h5 mb-1">¿No encontraste tu búsqueda?</h2>
+        <p class="text-secondary mb-0">Dejanos tu CV igual: lo tenemos en cuenta para las próximas incorporaciones.</p>
+      </div>
+      <a class="btn btn-brand" href="<?= URLROOT ?>/careers/unete/<?= htmlspecialchars($d['org']) ?>">Sumate al equipo</a>
+    </div>
   </div>
 </main>
 <?php require APPROOT . '/views/careers/partials/foot.php'; ?>
