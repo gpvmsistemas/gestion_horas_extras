@@ -1021,7 +1021,34 @@ class RegistroHorasController {
                     && $this->validDate($start) && $this->validDate($end)
                     && $start <= $end
                     && (strtotime($end) - strtotime($start)) <= 366 * 86400;
-                if ($ok && $this->service->addStatusPeriod($employee->id, $status, $start, $end, postString('notes'), (int)($_SESSION['user_id'] ?? 0))) {
+                // Certificado adjunto opcional (típicamente licencias médicas):
+                // se guarda en storage privado, fuera del webroot.
+                $certPath = null;
+                if ($ok && !empty($_FILES['certificate']['name'])
+                    && ($_FILES['certificate']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $valid = uploads_validate_uploaded_file(
+                        $_FILES['certificate'],
+                        ['pdf', 'jpg', 'jpeg', 'png'],
+                        ['application/pdf', 'image/jpeg', 'image/png'],
+                        10 * 1024 * 1024
+                    );
+                    if (!$valid['ok']) {
+                        $_SESSION['flash_error'] = 'Certificado: ' . $valid['message'];
+                        redirect('registroHoras/estados');
+                    }
+                    $dir = dirname(APPROOT) . '/storage/private/certificates/' . (int)$employee->id;
+                    if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
+                        $_SESSION['flash_error'] = 'No se pudo preparar el almacenamiento de certificados.';
+                        redirect('registroHoras/estados');
+                    }
+                    $stored = 'cert_' . bin2hex(random_bytes(8)) . '.' . $valid['ext'];
+                    if (!move_uploaded_file($_FILES['certificate']['tmp_name'], $dir . '/' . $stored)) {
+                        $_SESSION['flash_error'] = 'No se pudo guardar el certificado.';
+                        redirect('registroHoras/estados');
+                    }
+                    $certPath = 'certificates/' . (int)$employee->id . '/' . $stored;
+                }
+                if ($ok && $this->service->addStatusPeriod($employee->id, $status, $start, $end, postString('notes'), (int)($_SESSION['user_id'] ?? 0), $certPath)) {
                     $_SESSION['flash_success'] = RegistroHorasService::statusLabel($status) . ' registrada para ' . $employee->full_name
                         . ' del ' . date('d/m', strtotime($start)) . ' al ' . date('d/m', strtotime($end))
                         . '. La carga de horas queda bloqueada en esas fechas.';
@@ -1049,7 +1076,36 @@ class RegistroHorasController {
         foreach ($data['employees'] as $e) {
             $data['employeesById'][$e->id] = $e;
         }
+        $data['attachmentReady'] = $data['statusReady'] && $this->service->statusAttachmentReady();
         $this->render('registro_horas/estados', $data);
+    }
+
+    /** Descarga del certificado adjunto de un período de estado (solo staff con alcance sobre el empleado). */
+    public function certificado($periodId = 0){
+        $data = $this->orgData();
+        if (!$data['realMode'] || $this->service === null) {
+            redirect('registroHoras/estados');
+        }
+        $period = $this->service->statusPeriodById((int)$periodId);
+        if (!$period || empty($period->attachment_path)) {
+            http_response_code(404);
+            exit('Certificado no encontrado.');
+        }
+        // resolveEmployee valida organización y sub-alcance del staff.
+        if ($this->resolveEmployee((int)$period->user_id) === null) {
+            http_response_code(403);
+            exit('Sin permiso sobre este empleado.');
+        }
+        $abs = dirname(APPROOT) . '/storage/private/' . $period->attachment_path;
+        if (!is_file($abs)) {
+            http_response_code(404);
+            exit('Archivo no disponible.');
+        }
+        header('Content-Type: ' . (mime_content_type($abs) ?: 'application/octet-stream'));
+        header('Content-Disposition: attachment; filename="certificado-' . (int)$period->id . '.' . pathinfo($abs, PATHINFO_EXTENSION) . '"');
+        header('X-Content-Type-Options: nosniff');
+        readfile($abs);
+        exit;
     }
 
     /**

@@ -484,6 +484,11 @@ foreach ($fichaCols as $colName => $clause) {
         });
 }
 
+// ── 12b · Certificado adjunto en períodos de estado (licencias) ─────────────
+$paso('employee_status_periods.attachment_path (certificados de licencia)',
+    fn() => !$hasTab('employee_status_periods') || $hasCol('employee_status_periods', 'attachment_path'),
+    fn() => $pdo->exec('ALTER TABLE employee_status_periods ADD COLUMN attachment_path VARCHAR(255) NULL AFTER notes'));
+
 // ── 13 · Vacaciones v2 — alineación de esquema (migration_vacation_management_v2.sql
 //         nunca se aplicó completa en el VPS: su ADD COLUMN IF NOT EXISTS es
 //         de MariaDB. El verificador solo miraba que exista la tabla base. ───

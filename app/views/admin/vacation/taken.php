@@ -48,7 +48,12 @@ $fmt = fn($iso) => date('d/m/Y', strtotime($iso));
             </div>
             <div class="col-md-2">
                 <label class="form-label small mb-1">Período</label>
-                <input class="form-control form-control-sm" name="anio" value="<?php echo htmlspecialchars($filters['anio']); ?>" placeholder="2025" maxlength="4">
+                <select class="form-select form-select-sm" name="anio">
+                    <option value="">Todos</option>
+                    <?php foreach ($data['anios'] as $a): ?>
+                    <option value="<?php echo htmlspecialchars($a); ?>" <?php echo $filters['anio'] === $a ? 'selected' : ''; ?>><?php echo htmlspecialchars($a); ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small mb-1">Estado</label>

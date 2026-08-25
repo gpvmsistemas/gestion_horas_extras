@@ -699,26 +699,57 @@ class RegistroHorasService {
         return $out;
     }
 
-    /** Alta de un período de estado. */
-    public function addStatusPeriod($userId, $status, $startDate, $endDate, $notes, $createdBy) {
+    /** La columna de certificado adjunto ya existe (migración incremental). */
+    public function statusAttachmentReady() {
+        static $ready = null;
+        if ($ready === null) {
+            try {
+                $this->db->query("SHOW COLUMNS FROM employee_status_periods LIKE 'attachment_path'");
+                $ready = (bool)$this->db->single();
+            } catch (Throwable $e) {
+                $ready = false;
+            }
+        }
+        return $ready;
+    }
+
+    /** Alta de un período de estado, con certificado adjunto opcional. */
+    public function addStatusPeriod($userId, $status, $startDate, $endDate, $notes, $createdBy, $attachmentPath = null) {
         if (!$this->statusTableReady()) {
             return false;
         }
+        $withAttachment = $attachmentPath !== null && $this->statusAttachmentReady();
         try {
-            $this->db->query(
-                'INSERT INTO employee_status_periods (user_id, status, start_date, end_date, notes, created_by)
-                 VALUES (?, ?, ?, ?, ?, ?)'
-            );
-            return $this->db->execute([
+            $cols = 'user_id, status, start_date, end_date, notes, created_by' . ($withAttachment ? ', attachment_path' : '');
+            $ph = '?, ?, ?, ?, ?, ?' . ($withAttachment ? ', ?' : '');
+            $this->db->query("INSERT INTO employee_status_periods ($cols) VALUES ($ph)");
+            $vals = [
                 (int)$userId,
                 $status,
                 $startDate,
                 $endDate,
                 ($notes ?? '') !== '' ? $notes : null,
                 (int)$createdBy ?: null,
-            ]);
+            ];
+            if ($withAttachment) {
+                $vals[] = $attachmentPath;
+            }
+            return $this->db->execute($vals);
         } catch (Throwable $e) {
             return false;
+        }
+    }
+
+    /** Un período por id (para descarga de certificado, con dueño incluido). */
+    public function statusPeriodById($periodId) {
+        if (!$this->statusTableReady()) {
+            return null;
+        }
+        try {
+            $this->db->query('SELECT * FROM employee_status_periods WHERE id = ? LIMIT 1');
+            return $this->db->single([(int)$periodId]) ?: null;
+        } catch (Throwable $e) {
+            return null;
         }
     }
 

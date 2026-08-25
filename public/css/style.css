@@ -5357,3 +5357,28 @@ body.org-moderna .db-dark-head {
 .rh-tip.rh-tip-success { background: #157a55; }
 .rh-tip.rh-tip-info    { background: #135a6e; }
 @media (prefers-reduced-motion: reduce) { .rh-tip { transition: none; } }
+
+/* --------------------------------------------------------------------------
+   Botones sobre la cabecera degradada (.admin-page-head del skin app-staff):
+   sólidos en blanco — la versión translúcida se confundía con el fondo.
+   -------------------------------------------------------------------------- */
+.app-staff .admin-page-head .btn-outline-primary,
+.app-staff .admin-page-head .btn-outline-secondary,
+.app-staff .admin-page-head .btn-outline-light,
+.app-staff .admin-page-head .btn-light {
+    color: var(--ui-blue-dark, #1e3a8a);
+    background: #fff;
+    border-color: #fff;
+    font-weight: 700;
+}
+.app-staff .admin-page-head .btn-outline-primary:hover,
+.app-staff .admin-page-head .btn-outline-secondary:hover,
+.app-staff .admin-page-head .btn-outline-light:hover,
+.app-staff .admin-page-head .btn-light:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .18);
+    border-color: #fff;
+}
+.app-staff .admin-page-head .btn-success {
+    border-color: rgba(255, 255, 255, .65);
+}

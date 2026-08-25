@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS employee_status_periods (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     notes VARCHAR(255) NULL,
+    attachment_path VARCHAR(255) NULL,
     created_by INT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_esp_user_dates (user_id, start_date, end_date),

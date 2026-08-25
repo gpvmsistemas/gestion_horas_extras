@@ -410,11 +410,15 @@ class VacationAdminController {
             if ($st === 'en_curso') $tot['en_curso']++;
             if ($st === 'futura') $tot['futuras']++;
         }
+        $db->query("SELECT DISTINCT p.period_label FROM vacation_balance_periods p
+            JOIN users u ON u.id = p.user_id WHERE u.company_id IN ($in) ORDER BY p.period_label DESC");
+        $anios = array_map(fn($r) => $r->period_label, $db->resultSet());
         $this->view('admin/vacation/taken', [
             'tramos' => $tramos,
             'totales' => $tot,
             'filters' => ['q' => $q, 'company_id' => $companyId, 'anio' => $anio, 'estado' => $estado],
             'companies' => $this->companyModel->getAllCompanies(),
+            'anios' => $anios,
         ]);
     }
 

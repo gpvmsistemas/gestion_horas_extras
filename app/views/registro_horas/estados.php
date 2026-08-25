@@ -19,7 +19,7 @@ $_today = date('Y-m-d');
             </div>
             <div class="admin-surface-body">
                 <?php if ($data['realMode'] && $data['statusReady']): ?>
-                <form action="<?php echo URLROOT; ?>/registroHoras/estados" method="post">
+                <form action="<?php echo URLROOT; ?>/registroHoras/estados" method="post" enctype="multipart/form-data">
                     <?php echo csrf_field(); ?>
                     <input type="hidden" name="action" value="create">
                 <?php else: ?>
@@ -59,6 +59,13 @@ $_today = date('Y-m-d');
                         <label class="form-label">Notas (opcional)</label>
                         <input type="text" name="notes" class="form-control" maxlength="255" placeholder="Motivo, referencia…">
                     </div>
+                    <?php if (!empty($data['attachmentReady'])): ?>
+                    <div class="mb-3">
+                        <label class="form-label">Certificado (opcional)</label>
+                        <input type="file" name="certificate" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                        <div class="form-text">PDF o imagen, máx. 10 MB. Queda vinculado al período (típico: certificado médico de la licencia).</div>
+                    </div>
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-primary w-100"><i class="fas fa-save me-1"></i>Registrar período</button>
                 </form>
                 <div class="alert alert-warning py-2 small mt-3 mb-0">
@@ -101,7 +108,12 @@ $_today = date('Y-m-d');
                             </td>
                             <td><?php echo date('d/m/Y', strtotime($p->start_date)); ?></td>
                             <td><?php echo date('d/m/Y', strtotime($p->end_date)); ?></td>
-                            <td class="small text-muted"><?php echo htmlspecialchars((string)($p->notes ?? '')); ?></td>
+                            <td class="small text-muted">
+                                <?php echo htmlspecialchars((string)($p->notes ?? '')); ?>
+                                <?php if (!empty($p->attachment_path)): ?>
+                                <a href="<?php echo URLROOT; ?>/registroHoras/certificado/<?php echo (int)$p->id; ?>" class="d-inline-block ms-1" title="Descargar certificado adjunto"><i class="fas fa-paperclip"></i> certificado</a>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-end">
                                 <form action="<?php echo URLROOT; ?>/registroHoras/estados" method="post" class="d-inline rh-status-delete">
                                     <?php echo csrf_field(); ?>

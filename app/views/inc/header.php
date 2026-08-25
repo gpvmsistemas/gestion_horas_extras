@@ -305,6 +305,7 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
             </a>
 
             <div class="sidebar-section-title">RRHH integral</div>
+            <a href="<?php echo URLROOT; ?>/admin/hrRoadmap" class="sidebar-nav-link <?php echo navIsActive('/admin/hrRoadmap'); ?>"><i class="fas fa-fw fa-calendar-week"></i><span>Roadmap RRHH</span></a>
             <?php if(access_can('attendance.prepare')):?><a href="<?php echo URLROOT; ?>/admin/attendanceClosures" class="sidebar-nav-link <?php echo navIsActive('/admin/attendanceClosures'); ?>"><i class="fas fa-fw fa-lock"></i><span>Cierres de asistencia</span></a><?php endif; ?>
             <?php if(access_can('expirations.manage')):?><a href="<?php echo URLROOT; ?>/expirations" class="sidebar-nav-link <?php echo navIsActive('/expirations'); ?>"><i class="fas fa-fw fa-hourglass-half"></i><span>Vencimientos</span></a><?php endif; ?>
             <?php if(access_can('ppe.issue')):?><a href="<?php echo URLROOT; ?>/ppe" class="sidebar-nav-link <?php echo navIsActive('/ppe'); ?>"><i class="fas fa-fw fa-hard-hat"></i><span>EPP y ropa</span></a><?php endif; ?>

@@ -3083,6 +3083,100 @@ class AdminController {
         $this->view('admin/hr_alerts', array_merge(['company_id' => $companyId], $dashboard));
     }
 
+    /**
+     * Roadmap RRHH: calendario mensual de toda la organización con las
+     * vacaciones, licencias y guardias de cada colaborador, coloreado por
+     * empresa (companies.brand_color; colores repetidos se diferencian solos).
+     * Fuentes: employee_status_periods + bloques vacation/leave del calendario.
+     */
+    public function hrRoadmap() {
+        requireAdminCompany('admin/dashboard');
+        $month = preg_match('/^\d{4}-\d{2}$/', $_GET['m'] ?? '') ? $_GET['m'] : date('Y-m');
+        $tipo = in_array($_GET['tipo'] ?? '', ['vacaciones', 'licencia', 'guardia'], true) ? $_GET['tipo'] : '';
+        $orgIds = [];
+        if (function_exists('org_locked_group') && function_exists('org_group_company_ids')) {
+            $locked = org_locked_group();
+            if ($locked !== '') {
+                $orgIds = array_map('intval', org_group_company_ids($locked));
+            }
+        }
+        if (!$orgIds) {
+            $orgIds = function_exists('adminCompanyIds') ? array_map('intval', adminCompanyIds()) : [adminCompanyId()];
+        }
+        $in = implode(',', $orgIds ?: [0]);
+        $ini = $month . '-01';
+        $fin = date('Y-m-t', strtotime($ini));
+
+        $db = new Database();
+        $db->query("SELECT id, name, brand_color FROM companies WHERE id IN ($in) ORDER BY name");
+        $companies = $db->resultSet();
+        $palette = ['#1d4ed8', '#0f766e', '#b45309', '#7c3aed', '#be185d', '#166534', '#0e7490', '#9f1239'];
+        $used = [];
+        $colors = [];
+        foreach ($companies as $i => $c) {
+            $col = strtolower(trim((string)($c->brand_color ?? '')));
+            if (!preg_match('/^#[0-9a-f]{6}$/', $col) || isset($used[$col])) {
+                $col = $palette[$i % count($palette)];
+            }
+            $used[$col] = true;
+            $colors[(int)$c->id] = $col;
+        }
+
+        $porDia = [];
+        $seen = [];
+        $agregar = function ($iso, $uid, $nombre, $t, $companyId) use (&$porDia, &$seen, $ini, $fin) {
+            if ($iso < $ini || $iso > $fin || isset($seen["$uid|$t|$iso"])) {
+                return;
+            }
+            $seen["$uid|$t|$iso"] = true;
+            $porDia[$iso][] = (object)['name' => $nombre, 'tipo' => $t, 'company_id' => (int)$companyId];
+        };
+
+        // Fuente 1: períodos de estado declarados (guardia/vacaciones/licencia).
+        try {
+            $sql = "SELECT sp.user_id, sp.status tipo, sp.start_date, sp.end_date, u.full_name, u.company_id
+                    FROM employee_status_periods sp JOIN users u ON u.id = sp.user_id
+                    WHERE u.company_id IN ($in) AND u.is_active = 1 AND sp.start_date <= ? AND sp.end_date >= ?"
+                . ($tipo !== '' ? ' AND sp.status = ?' : '');
+            $db->query($sql);
+            foreach ($db->resultSet($tipo !== '' ? [$fin, $ini, $tipo] : [$fin, $ini]) as $r) {
+                for ($d = max($r->start_date, $ini); $d <= min($r->end_date, $fin); $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
+                    $agregar($d, (int)$r->user_id, $r->full_name, $r->tipo, $r->company_id);
+                }
+            }
+        } catch (Throwable $e) {
+        }
+
+        // Fuente 2: bloques de vacaciones/licencias del calendario (importados
+        // del informe de RRHH o generados al aprobar solicitudes).
+        try {
+            $map = ['vacation' => 'vacaciones', 'leave' => 'licencia'];
+            $db->query("SELECT es.user_id, es.schedule_date, es.type, u.full_name, u.company_id
+                    FROM employee_schedules es JOIN users u ON u.id = es.user_id
+                    WHERE u.company_id IN ($in) AND u.is_active = 1
+                      AND es.type IN ('vacation','leave') AND es.schedule_date BETWEEN ? AND ?");
+            foreach ($db->resultSet([$ini, $fin]) as $r) {
+                $t = $map[$r->type] ?? null;
+                if ($t === null || ($tipo !== '' && $t !== $tipo)) {
+                    continue;
+                }
+                $agregar($r->schedule_date, (int)$r->user_id, $r->full_name, $t, $r->company_id);
+            }
+        } catch (Throwable $e) {
+        }
+
+        $this->view('admin/hr_roadmap', [
+            'month' => $month,
+            'prev' => date('Y-m', strtotime($ini . ' -1 month')),
+            'next' => date('Y-m', strtotime($ini . ' +1 month')),
+            'por_dia' => $porDia,
+            'companies' => $companies,
+            'colors' => $colors,
+            'tipo' => $tipo,
+            'ini' => $ini,
+        ]);
+    }
+
     public function exportAttendanceMonthCsv() {
         requireAdminOnly();
         $companyId = requireAdminCompany('admin/attendance');
