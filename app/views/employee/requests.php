@@ -103,7 +103,7 @@ $preselectScheduleId = (int)($_GET['schedule_id'] ?? 0);
                 <option value="<?php echo (int)$s->id; ?>" <?php echo ($preselectScheduleId === (int)$s->id) ? 'selected' : ''; ?>>
                     <?php
                     $dn = date('d/m/Y', strtotime($s->schedule_date));
-                    $nm = !empty($s->shift_name) ? $s->shift_name : ucfirst($s->type);
+                    $nm = employee_schedule_entry_label($s);
                     echo htmlspecialchars($dn . ' · ' . $nm . ' (' . substr($s->start_time, 0, 5) . '–' . substr($s->end_time, 0, 5) . ')');
                     ?>
                 </option>

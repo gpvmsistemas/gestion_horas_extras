@@ -246,3 +246,22 @@ function employee_portal_announcement_visible(array $announcement) {
     $link = $announcement['link_url'] ?? '';
     return $link === '' || employee_portal_path_allowed($link);
 }
+
+/**
+ * Nombre visible de un bloque de horario en el portal del empleado.
+ * Prioridad: turno del planificador → sucursal del Registro de Horas →
+ * etiqueta humana del tipo (nunca el enum crudo tipo "custom").
+ */
+function employee_schedule_entry_label($entry) {
+    if (!empty($entry->shift_name)) {
+        return $entry->shift_name;
+    }
+    if (!empty($entry->branch_name)) {
+        return $entry->branch_name;
+    }
+    $labels = [
+        'shift' => 'Turno', 'custom' => 'Horario', 'overtime' => 'Horas extras',
+        'vacation' => 'Vacaciones', 'leave' => 'Licencia',
+    ];
+    return $labels[$entry->type ?? ''] ?? ucfirst((string)($entry->type ?? 'Horario'));
+}

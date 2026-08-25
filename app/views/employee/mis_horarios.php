@@ -90,7 +90,7 @@ foreach($byWeek as $weekNum => $daysInWeek):
             ?>
         </div>
         <div class="emp-shift-info">
-            <span class="emp-shift-name"><?php echo htmlspecialchars($entry->shift_name ?? ucfirst($entry->type)); ?></span>
+            <span class="emp-shift-name"><?php echo htmlspecialchars(employee_schedule_entry_label($entry)); ?></span>
             <?php if($entry->start_time && $entry->end_time): ?>
             <span class="emp-shift-hours">
                 <i class="fas fa-clock me-1"></i><?php echo substr($entry->start_time,0,5); ?> – <?php echo substr($entry->end_time,0,5); ?>
