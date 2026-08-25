@@ -776,13 +776,27 @@ class RegistroHorasService {
             return [];
         }
         $ph = implode(',', array_fill(0, count($userIds), '?'));
+        $att = $this->statusAttachmentReady() ? ', attachment_path' : '';
         $this->db->query(
-            "SELECT id, user_id, status, start_date, end_date, notes
+            "SELECT id, user_id, status, start_date, end_date, notes{$att}
              FROM employee_status_periods
              WHERE user_id IN ($ph) AND end_date >= ?
              ORDER BY start_date ASC, id ASC"
         );
         return $this->db->resultSet(array_merge($userIds, [$fromDate]));
+    }
+
+    /** Vincula (o reemplaza) el certificado adjunto de un período. */
+    public function setStatusAttachment($periodId, $userId, $path) {
+        if (!$this->statusAttachmentReady()) {
+            return false;
+        }
+        try {
+            $this->db->query('UPDATE employee_status_periods SET attachment_path = ? WHERE id = ? AND user_id = ?');
+            return $this->db->execute([$path, (int)$periodId, (int)$userId]);
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     // ─────────────────────────── Feriados ───────────────────────────

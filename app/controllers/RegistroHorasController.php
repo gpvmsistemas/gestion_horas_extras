@@ -1022,32 +1022,8 @@ class RegistroHorasController {
                     && $start <= $end
                     && (strtotime($end) - strtotime($start)) <= 366 * 86400;
                 // Certificado adjunto opcional (típicamente licencias médicas):
-                // se guarda en storage privado, fuera del webroot.
-                $certPath = null;
-                if ($ok && !empty($_FILES['certificate']['name'])
-                    && ($_FILES['certificate']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-                    $valid = uploads_validate_uploaded_file(
-                        $_FILES['certificate'],
-                        ['pdf', 'jpg', 'jpeg', 'png'],
-                        ['application/pdf', 'image/jpeg', 'image/png'],
-                        10 * 1024 * 1024
-                    );
-                    if (!$valid['ok']) {
-                        $_SESSION['flash_error'] = 'Certificado: ' . $valid['message'];
-                        redirect('registroHoras/estados');
-                    }
-                    $dir = dirname(APPROOT) . '/storage/private/certificates/' . (int)$employee->id;
-                    if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
-                        $_SESSION['flash_error'] = 'No se pudo preparar el almacenamiento de certificados.';
-                        redirect('registroHoras/estados');
-                    }
-                    $stored = 'cert_' . bin2hex(random_bytes(8)) . '.' . $valid['ext'];
-                    if (!move_uploaded_file($_FILES['certificate']['tmp_name'], $dir . '/' . $stored)) {
-                        $_SESSION['flash_error'] = 'No se pudo guardar el certificado.';
-                        redirect('registroHoras/estados');
-                    }
-                    $certPath = 'certificates/' . (int)$employee->id . '/' . $stored;
-                }
+                // también se puede adjuntar DESPUÉS, cuando RRHH lo recibe.
+                $certPath = $ok ? $this->uploadStatusCertificate((int)$employee->id) : null;
                 if ($ok && $this->service->addStatusPeriod($employee->id, $status, $start, $end, postString('notes'), (int)($_SESSION['user_id'] ?? 0), $certPath)) {
                     $_SESSION['flash_success'] = RegistroHorasService::statusLabel($status) . ' registrada para ' . $employee->full_name
                         . ' del ' . date('d/m', strtotime($start)) . ' al ' . date('d/m', strtotime($end))
@@ -1055,10 +1031,40 @@ class RegistroHorasController {
                 } else {
                     $_SESSION['flash_error'] = 'Revisá empleado, estado y rango de fechas (máx. 1 año).';
                 }
+            } elseif ($action === 'attach') {
+                // El certificado suele llegar a RRHH después de registrada la
+                // licencia: se adjunta (o reemplaza) sobre el período existente.
+                $employee = $this->resolveEmployee((int)($_POST['employee_id'] ?? 0));
+                $periodId = (int)($_POST['period_id'] ?? 0);
+                $period = $this->service->statusPeriodById($periodId);
+                if ($employee === null || !$period || (int)$period->user_id !== (int)$employee->id) {
+                    $_SESSION['flash_error'] = 'Período inexistente o sin permiso.';
+                    redirect('registroHoras/estados');
+                }
+                $certPath = $this->uploadStatusCertificate((int)$employee->id);
+                if ($certPath === null) {
+                    $_SESSION['flash_error'] = 'Adjuntá el archivo del certificado.';
+                    redirect('registroHoras/estados');
+                }
+                if ($this->service->setStatusAttachment($periodId, $employee->id, $certPath)) {
+                    $anterior = $period->attachment_path ?? null;
+                    if ($anterior) {
+                        @unlink(dirname(APPROOT) . '/storage/private/' . $anterior);
+                    }
+                    $_SESSION['flash_success'] = 'Certificado ' . ($anterior ? 'reemplazado' : 'adjuntado')
+                        . ' al período de ' . $employee->full_name . '.';
+                } else {
+                    @unlink(dirname(APPROOT) . '/storage/private/' . $certPath);
+                    $_SESSION['flash_error'] = 'No se pudo vincular el certificado.';
+                }
             } elseif ($action === 'delete') {
                 $employee = $this->resolveEmployee((int)($_POST['employee_id'] ?? 0));
                 $periodId = (int)($_POST['period_id'] ?? 0);
+                $period = $this->service->statusPeriodById($periodId);
                 if ($employee !== null && $this->service->deleteStatusPeriod($periodId, $employee->id)) {
+                    if (!empty($period->attachment_path)) {
+                        @unlink(dirname(APPROOT) . '/storage/private/' . $period->attachment_path);
+                    }
                     $_SESSION['flash_success'] = 'Período de estado eliminado.';
                 } else {
                     $_SESSION['flash_error'] = 'No se pudo eliminar el período.';
@@ -1068,7 +1074,12 @@ class RegistroHorasController {
         }
 
         if ($data['realMode'] && $data['statusReady']) {
-            $data['periods'] = $this->service->listStatusPeriods(array_column($data['employees'], 'id'), date('Y-m-d'));
+            // Incluye finalizados recientes: el certificado suele llegar cuando
+            // la licencia ya terminó y el período debe seguir accesible.
+            $data['periods'] = $this->service->listStatusPeriods(
+                array_column($data['employees'], 'id'),
+                date('Y-m-d', strtotime('-60 days'))
+            );
         } else {
             $data['periods'] = [];
         }
@@ -1078,6 +1089,39 @@ class RegistroHorasController {
         }
         $data['attachmentReady'] = $data['statusReady'] && $this->service->statusAttachmentReady();
         $this->render('registro_horas/estados', $data);
+    }
+
+    /**
+     * Sube el certificado del POST actual a storage privado y devuelve su
+     * ruta relativa; null si no vino archivo. Ante archivo inválido corta
+     * con flash y redirect (nunca crea el período/vínculo a medias).
+     */
+    private function uploadStatusCertificate($employeeId){
+        if (empty($_FILES['certificate']['name'])
+            || ($_FILES['certificate']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        $valid = uploads_validate_uploaded_file(
+            $_FILES['certificate'],
+            ['pdf', 'jpg', 'jpeg', 'png'],
+            ['application/pdf', 'image/jpeg', 'image/png'],
+            10 * 1024 * 1024
+        );
+        if (!$valid['ok']) {
+            $_SESSION['flash_error'] = 'Certificado: ' . $valid['message'];
+            redirect('registroHoras/estados');
+        }
+        $dir = dirname(APPROOT) . '/storage/private/certificates/' . (int)$employeeId;
+        if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir)) {
+            $_SESSION['flash_error'] = 'No se pudo preparar el almacenamiento de certificados.';
+            redirect('registroHoras/estados');
+        }
+        $stored = 'cert_' . bin2hex(random_bytes(8)) . '.' . $valid['ext'];
+        if (!move_uploaded_file($_FILES['certificate']['tmp_name'], $dir . '/' . $stored)) {
+            $_SESSION['flash_error'] = 'No se pudo guardar el certificado.';
+            redirect('registroHoras/estados');
+        }
+        return 'certificates/' . (int)$employeeId . '/' . $stored;
     }
 
     /** Descarga del certificado adjunto de un período de estado (solo staff con alcance sobre el empleado). */

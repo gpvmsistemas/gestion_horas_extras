@@ -86,47 +86,72 @@ $_today = date('Y-m-d');
             <div class="admin-surface-head">
                 <div>
                     <h3 class="admin-surface-title"><i class="fas fa-calendar-alt"></i>Períodos vigentes y futuros</h3>
-                    <p class="admin-surface-subtitle">Los períodos pasados dejan de bloquear la carga y salen de esta lista.</p>
+                    <p class="admin-surface-subtitle">Los pasados dejan de bloquear la carga; abajo quedan 60 días accesibles para adjuntar el certificado cuando llega.</p>
                 </div>
             </div>
             <div class="admin-surface-body is-tight">
+                <?php
+                // Celda de certificado: descarga si existe; adjuntar/reemplazar
+                // siempre disponible (el certificado suele llegar después).
+                $_certCell = function ($p) use ($data) {
+                    $out = '';
+                    if (!empty($p->attachment_path)) {
+                        $out .= '<a href="' . URLROOT . '/registroHoras/certificado/' . (int)$p->id . '" class="btn btn-sm btn-outline-secondary me-1" title="Descargar certificado"><i class="fas fa-file-download"></i></a>';
+                    }
+                    if (!empty($data['attachmentReady'])) {
+                        $fid = 'cert_att_' . (int)$p->id;
+                        $out .= '<form action="' . URLROOT . '/registroHoras/estados" method="post" enctype="multipart/form-data" class="d-inline">'
+                            . csrf_field()
+                            . '<input type="hidden" name="action" value="attach">'
+                            . '<input type="hidden" name="period_id" value="' . (int)$p->id . '">'
+                            . '<input type="hidden" name="employee_id" value="' . (int)$p->user_id . '">'
+                            . '<input type="file" name="certificate" id="' . $fid . '" class="d-none" accept=".pdf,.jpg,.jpeg,.png" onchange="this.form.submit()">'
+                            . '<label for="' . $fid . '" class="btn btn-sm ' . (empty($p->attachment_path) ? 'btn-outline-primary' : 'btn-outline-secondary') . '" title="' . (empty($p->attachment_path) ? 'Adjuntar certificado' : 'Reemplazar certificado') . '" role="button"><i class="fas fa-paperclip"></i>' . (empty($p->attachment_path) ? ' Adjuntar' : '') . '</label>'
+                            . '</form>';
+                    }
+                    return $out;
+                };
+                $_rowRender = function ($p) use ($data, $_today, $_certCell) {
+                    $emp = $data['employeesById'][(int)$p->user_id] ?? null;
+                    if (!$emp) return;
+                    $label = RegistroHorasService::statusLabel($p->status);
+                    $vigente = $p->start_date <= $_today && $_today <= $p->end_date;
+                    ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars($emp->name); ?></td>
+                        <td>
+                            <span class="badge <?php echo org_state_badge_class($label); ?>"><?php echo htmlspecialchars($label); ?></span>
+                            <?php if ($vigente): ?><span class="badge bg-dark ms-1">Hoy</span><?php endif; ?>
+                        </td>
+                        <td><?php echo date('d/m/Y', strtotime($p->start_date)); ?></td>
+                        <td><?php echo date('d/m/Y', strtotime($p->end_date)); ?></td>
+                        <td class="small text-muted"><?php echo htmlspecialchars((string)($p->notes ?? '')); ?></td>
+                        <td class="text-nowrap"><?php echo $_certCell($p); ?></td>
+                        <td class="text-end">
+                            <form action="<?php echo URLROOT; ?>/registroHoras/estados" method="post" class="d-inline rh-status-delete">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="period_id" value="<?php echo (int)$p->id; ?>">
+                                <input type="hidden" name="employee_id" value="<?php echo (int)$p->user_id; ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar período"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <?php
+                };
+                $_activos = [];
+                $_finalizados = [];
+                foreach ($data['periods'] as $p) {
+                    if ($p->end_date >= $_today) { $_activos[] = $p; } else { $_finalizados[] = $p; }
+                }
+                ?>
                 <div class="table-responsive">
                 <table class="table table-striped admin-table mb-0 align-middle">
-                    <thead><tr><th>Empleado</th><th>Estado</th><th>Desde</th><th>Hasta</th><th>Notas</th><th class="text-end">Acciones</th></tr></thead>
+                    <thead><tr><th>Empleado</th><th>Estado</th><th>Desde</th><th>Hasta</th><th>Notas</th><th>Certificado</th><th class="text-end">Acciones</th></tr></thead>
                     <tbody>
-                        <?php foreach ($data['periods'] as $p):
-                            $emp = $data['employeesById'][(int)$p->user_id] ?? null;
-                            if (!$emp) continue;
-                            $label = RegistroHorasService::statusLabel($p->status);
-                            $vigente = $p->start_date <= $_today && $_today <= $p->end_date;
-                        ?>
-                        <tr>
-                            <td><?php echo htmlspecialchars($emp->name); ?></td>
-                            <td>
-                                <span class="badge <?php echo org_state_badge_class($label); ?>"><?php echo htmlspecialchars($label); ?></span>
-                                <?php if ($vigente): ?><span class="badge bg-dark ms-1">Hoy</span><?php endif; ?>
-                            </td>
-                            <td><?php echo date('d/m/Y', strtotime($p->start_date)); ?></td>
-                            <td><?php echo date('d/m/Y', strtotime($p->end_date)); ?></td>
-                            <td class="small text-muted">
-                                <?php echo htmlspecialchars((string)($p->notes ?? '')); ?>
-                                <?php if (!empty($p->attachment_path)): ?>
-                                <a href="<?php echo URLROOT; ?>/registroHoras/certificado/<?php echo (int)$p->id; ?>" class="d-inline-block ms-1" title="Descargar certificado adjunto"><i class="fas fa-paperclip"></i> certificado</a>
-                                <?php endif; ?>
-                            </td>
-                            <td class="text-end">
-                                <form action="<?php echo URLROOT; ?>/registroHoras/estados" method="post" class="d-inline rh-status-delete">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="period_id" value="<?php echo (int)$p->id; ?>">
-                                    <input type="hidden" name="employee_id" value="<?php echo (int)$p->user_id; ?>">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar período"><i class="fas fa-trash"></i></button>
-                                </form>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <?php if (empty($data['periods'])): ?>
-                        <tr><td colspan="6" class="text-center text-muted py-4">
+                        <?php foreach ($_activos as $p) { $_rowRender($p); } ?>
+                        <?php if (empty($_activos)): ?>
+                        <tr><td colspan="7" class="text-center text-muted py-4">
                             <i class="fas fa-user-check d-block fs-4 mb-2"></i>
                             Sin períodos declarados: todos los empleados figuran Activos.
                         </td></tr>
@@ -134,6 +159,17 @@ $_today = date('Y-m-d');
                     </tbody>
                 </table>
                 </div>
+                <?php if ($_finalizados): ?>
+                <h4 class="h6 text-muted mt-4 mb-2"><i class="fas fa-history me-1"></i>Finalizados recientes (últimos 60 días) — todavía se les puede adjuntar el certificado</h4>
+                <div class="table-responsive">
+                <table class="table admin-table mb-0 align-middle">
+                    <thead><tr><th>Empleado</th><th>Estado</th><th>Desde</th><th>Hasta</th><th>Notas</th><th>Certificado</th><th class="text-end">Acciones</th></tr></thead>
+                    <tbody>
+                        <?php foreach ($_finalizados as $p) { $_rowRender($p); } ?>
+                    </tbody>
+                </table>
+                </div>
+                <?php endif; ?>
             </div>
         </section>
     </div>
