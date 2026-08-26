@@ -35,9 +35,16 @@ class RecruitingController {
   $filters=['q'=>trim($_GET['q']??''),'estado'=>trim($_GET['estado']??''),'vacante_id'=>(int)($_GET['vacante_id']??0),'desde'=>trim($_GET['desde']??''),'hasta'=>trim($_GET['hasta']??'')];
   $selected=(int)($_GET['vacancy_id']??0);
   $vacancy=$selected?$this->m->vacancyByIdIn($selected,$ids):null;
+  $vacancies=$this->m->vacanciesForCompanies($ids);
+  // Opciones del filtro de estado: solo las etapas que EXISTEN en los
+  // pipelines de las búsquedas de esta organización (sin restos legacy).
+  $estadoOpts=[];
+  foreach($vacancies as $v){foreach(json_decode($v->pipeline_json??'',true)?:[] as $s){$estadoOpts[$s]=true;}}
+  $estadoOpts=array_keys($estadoOpts)?:org_default_pipeline();
   $this->view('admin/recruiting/index',[
    'kpis'=>$this->m->recruitingKpis($ids),
-   'vacancies'=>$this->m->vacanciesForCompanies($ids),
+   'vacancies'=>$vacancies,
+   'estado_opts'=>$estadoOpts,
    'vacancy'=>$vacancy,
    'selected'=>$vacancy?(int)$vacancy->id:0,
    'applications'=>$this->m->applicationsOrg($ids,$filters,(int)($_GET['page']??1)),

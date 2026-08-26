@@ -7,7 +7,7 @@ $_k = $d['kpis'];
 $_statusLabels = ['draft' => 'Borrador', 'published' => 'Publicada', 'paused' => 'Pausada', 'closed' => 'Cerrada'];
 $_statusBadges = ['draft' => 'text-bg-secondary', 'published' => 'text-bg-success', 'paused' => 'text-bg-warning', 'closed' => 'text-bg-dark'];
 $_vStages = $_v ? (json_decode($_v->pipeline_json ?? '', true) ?: org_default_pipeline()) : org_default_pipeline();
-$_estadoOpts = array_values(array_unique(array_merge(org_default_pipeline(), ['received', 'shortlist', 'interview', 'offer', 'hired', 'rejected'])));
+$_estadoOpts = $d['estado_opts'] ?? org_default_pipeline();
 $_qsArr = array_filter(['q' => $_f['q'], 'estado' => $_f['estado'], 'vacante_id' => $_f['vacante_id'] ?: '', 'desde' => $_f['desde'], 'hasta' => $_f['hasta'], 'vacancy_id' => $d['selected'] ?: ''], fn($x) => $x !== '' && $x !== 0);
 $_backQs = htmlspecialchars(http_build_query(array_merge($_qsArr, ['page' => $_apps['page']])));
 $_qs = fn(array $extra) => htmlspecialchars(http_build_query(array_merge($_qsArr, $extra)));
@@ -130,7 +130,8 @@ $_qs = fn(array $extra) => htmlspecialchars(http_build_query(array_merge($_qsArr
         <?php if (!$_v): ?>
         <label class="form-label">Sociedad</label>
         <select class="form-select mb-3" name="company_id">
-          <?php foreach ($d['companies'] as $c): ?><option value="<?= (int)$c->id ?>"><?= htmlspecialchars($c->name) ?></option><?php endforeach; ?>
+          <?php $_activa = function_exists('adminCompanyId') ? adminCompanyId() : 0; ?>
+          <?php foreach ($d['companies'] as $c): ?><option value="<?= (int)$c->id ?>" <?= (int)$c->id === $_activa ? 'selected' : '' ?>><?= htmlspecialchars($c->name) ?></option><?php endforeach; ?>
         </select>
         <?php endif; ?>
         <label class="form-label">Título</label>
