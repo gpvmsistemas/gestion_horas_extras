@@ -3110,6 +3110,51 @@ class AdminController {
         $db = new Database();
         $db->query("SELECT id, name, brand_color FROM companies WHERE id IN ($in) ORDER BY name");
         $companies = $db->resultSet();
+
+        // Filtros empresa / ciudad / sucursal (validados contra la organización).
+        $db->query("SELECT id, name, locality, company_id FROM company_branches
+            WHERE company_id IN ($in) AND is_active = 1 ORDER BY locality, name");
+        $branches = $db->resultSet();
+        $ciudades = array_values(array_unique(array_filter(array_map(fn($b) => $b->locality, $branches))));
+        sort($ciudades);
+        $fEmpresa = (int)($_GET['empresa'] ?? 0);
+        if ($fEmpresa && !in_array($fEmpresa, $orgIds, true)) {
+            $fEmpresa = 0;
+        }
+        $fCiudad = trim($_GET['ciudad'] ?? '');
+        if ($fCiudad !== '' && !in_array($fCiudad, $ciudades, true)) {
+            $fCiudad = '';
+        }
+        $fSucursal = (int)($_GET['sucursal'] ?? 0);
+        $sucValida = null;
+        foreach ($branches as $b) {
+            if ((int)$b->id === $fSucursal) {
+                $sucValida = $b;
+            }
+        }
+        if ($fSucursal && (!$sucValida
+            || ($fEmpresa && (int)$sucValida->company_id !== $fEmpresa)
+            || ($fCiudad !== '' && $sucValida->locality !== $fCiudad))) {
+            $fSucursal = 0;
+        }
+        $userWhere = '';
+        $userBind = [];
+        if ($fEmpresa) {
+            $userWhere .= ' AND u.company_id = ?';
+            $userBind[] = $fEmpresa;
+        }
+        if ($fSucursal) {
+            $userWhere .= ' AND (u.branch_id = ? OR EXISTS (SELECT 1 FROM employee_branch_assignments eba
+                WHERE eba.user_id = u.id AND eba.branch_id = ?))';
+            $userBind[] = $fSucursal;
+            $userBind[] = $fSucursal;
+        } elseif ($fCiudad !== '') {
+            $userWhere .= " AND EXISTS (SELECT 1 FROM company_branches cb
+                WHERE cb.locality = ? AND cb.company_id IN ($in)
+                  AND (cb.id = u.branch_id OR EXISTS (SELECT 1 FROM employee_branch_assignments eba2
+                       WHERE eba2.user_id = u.id AND eba2.branch_id = cb.id)))";
+            $userBind[] = $fCiudad;
+        }
         $palette = ['#1d4ed8', '#0f766e', '#b45309', '#7c3aed', '#be185d', '#166534', '#0e7490', '#9f1239'];
         $used = [];
         $colors = [];
@@ -3137,9 +3182,9 @@ class AdminController {
             $sql = "SELECT sp.user_id, sp.status tipo, sp.start_date, sp.end_date, u.full_name, u.company_id
                     FROM employee_status_periods sp JOIN users u ON u.id = sp.user_id
                     WHERE u.company_id IN ($in) AND u.is_active = 1 AND sp.start_date <= ? AND sp.end_date >= ?"
-                . ($tipo !== '' ? ' AND sp.status = ?' : '');
+                . ($tipo !== '' ? ' AND sp.status = ?' : '') . $userWhere;
             $db->query($sql);
-            foreach ($db->resultSet($tipo !== '' ? [$fin, $ini, $tipo] : [$fin, $ini]) as $r) {
+            foreach ($db->resultSet(array_merge($tipo !== '' ? [$fin, $ini, $tipo] : [$fin, $ini], $userBind)) as $r) {
                 for ($d = max($r->start_date, $ini); $d <= min($r->end_date, $fin); $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
                     $agregar($d, (int)$r->user_id, $r->full_name, $r->tipo, $r->company_id);
                 }
@@ -3154,8 +3199,8 @@ class AdminController {
             $db->query("SELECT es.user_id, es.schedule_date, es.type, u.full_name, u.company_id
                     FROM employee_schedules es JOIN users u ON u.id = es.user_id
                     WHERE u.company_id IN ($in) AND u.is_active = 1
-                      AND es.type IN ('vacation','leave') AND es.schedule_date BETWEEN ? AND ?");
-            foreach ($db->resultSet([$ini, $fin]) as $r) {
+                      AND es.type IN ('vacation','leave') AND es.schedule_date BETWEEN ? AND ?" . $userWhere);
+            foreach ($db->resultSet(array_merge([$ini, $fin], $userBind)) as $r) {
                 $t = $map[$r->type] ?? null;
                 if ($t === null || ($tipo !== '' && $t !== $tipo)) {
                     continue;
@@ -3174,6 +3219,11 @@ class AdminController {
             'colors' => $colors,
             'tipo' => $tipo,
             'ini' => $ini,
+            'branches' => $branches,
+            'ciudades' => $ciudades,
+            'f_empresa' => $fEmpresa,
+            'f_ciudad' => $fCiudad,
+            'f_sucursal' => $fSucursal,
         ]);
     }
 

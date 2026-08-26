@@ -47,15 +47,52 @@ $qsTipo = $tipoSel !== '' ? '&tipo=' . $tipoSel : '';
             <?php endforeach; ?>
             <span class="small text-secondary">V = Vacaciones · L = Licencia · G = Guardia</span>
         </div>
-        <form method="get" action="<?php echo URLROOT; ?>/admin/hrRoadmap" class="d-flex gap-2">
+        <form method="get" action="<?php echo URLROOT; ?>/admin/hrRoadmap" class="d-flex gap-2 flex-wrap" id="hrrFiltros">
             <input type="hidden" name="m" value="<?php echo htmlspecialchars($month); ?>">
-            <select class="form-select form-select-sm" name="tipo" onchange="this.form.submit()">
+            <select class="form-select form-select-sm" name="empresa" id="hrrEmpresa" style="max-width:180px" onchange="hrrSync(true)">
+                <option value="0">Toda empresa</option>
+                <?php foreach ($data['companies'] as $c): ?>
+                <option value="<?php echo (int)$c->id; ?>" <?php echo (int)$data['f_empresa'] === (int)$c->id ? 'selected' : ''; ?>><?php echo htmlspecialchars($c->name); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select class="form-select form-select-sm" name="ciudad" id="hrrCiudad" style="max-width:160px" onchange="hrrSync(true)">
+                <option value="">Toda ciudad</option>
+                <?php foreach ($data['ciudades'] as $ci): ?>
+                <option value="<?php echo htmlspecialchars($ci); ?>" <?php echo $data['f_ciudad'] === $ci ? 'selected' : ''; ?>><?php echo htmlspecialchars($ci); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select class="form-select form-select-sm" name="sucursal" id="hrrSucursal" style="max-width:200px" onchange="this.form.submit()">
+                <option value="0">Toda sucursal</option>
+                <?php foreach ($data['branches'] as $b): ?>
+                <option value="<?php echo (int)$b->id; ?>" data-company="<?php echo (int)$b->company_id; ?>" data-city="<?php echo htmlspecialchars($b->locality); ?>" <?php echo (int)$data['f_sucursal'] === (int)$b->id ? 'selected' : ''; ?>><?php echo htmlspecialchars($b->name); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select class="form-select form-select-sm" name="tipo" style="max-width:150px" onchange="this.form.submit()">
                 <option value="">Todos los tipos</option>
                 <?php foreach ($tipoLabel as $tv => $tl): ?>
                 <option value="<?php echo $tv; ?>" <?php echo $tipoSel === $tv ? 'selected' : ''; ?>><?php echo $tl; ?></option>
                 <?php endforeach; ?>
             </select>
+            <a class="btn btn-sm btn-outline-secondary" href="<?php echo URLROOT; ?>/admin/hrRoadmap?m=<?php echo htmlspecialchars($month); ?>">Limpiar</a>
         </form>
+        <script>
+        // Cascada: la lista de sucursales se acota a la empresa y ciudad elegidas.
+        function hrrSync(submit) {
+            var emp = document.getElementById('hrrEmpresa').value;
+            var ciu = document.getElementById('hrrCiudad').value;
+            var suc = document.getElementById('hrrSucursal');
+            var validas = 0;
+            [].forEach.call(suc.options, function (o) {
+                if (!o.value || o.value === '0') return;
+                var ok = (emp === '0' || o.dataset.company === emp) && (ciu === '' || o.dataset.city === ciu);
+                o.hidden = !ok; o.disabled = !ok;
+                if (ok) validas++;
+                if (!ok && o.selected) suc.value = '0';
+            });
+            if (submit) document.getElementById('hrrFiltros').submit();
+        }
+        hrrSync(false);
+        </script>
     </div>
 </div>
 
