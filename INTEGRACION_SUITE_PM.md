@@ -299,3 +299,150 @@ legajo ampliado, programa RRHH integral, control de asistencia); desde
 - Cierre mensual de extras Moderna (D2), reportes Excel de Por sucursal,
   siembra de feriados nacionales, y las próximas nóminas por área
   (repetir §6 con su Excel y `--sucursal`).
+
+---
+
+## Anexo A — Lógica interna por módulo (para modificar con confianza)
+
+### A.1 Registro de Horas — el motor (`RegistroHorasService`)
+
+**Modelo de datos.** Cada tramo trabajado es una fila de `employee_schedules`
+con `type='custom'` (la carga puede materializar turnos como custom),
+`start_time`/`end_time`, `branch_name` (texto de la sucursal donde se trabajó,
+que puede diferir de la sucursal "administrativa" del empleado) y `branch_id`
+opcional. Los tipos `vacation`/`leave` son bloques SIN horas que bloquean la
+carga; `overtime` es el circuito 50/100 de Paviotti.
+
+**Medianoche.** Un turno que cruza medianoche NUNCA se guarda como una fila
+`end < start`: `splitRange()` lo parte en dos filas (`inicio→23:59` del día D y
+`00:00→fin` del día D+1). `blockMinutes()` trata `23:59`, `23:59:00` y
+`23:59:59` como fin de día (1440). Los datos HISTÓRICOS de hoursapp sí traían
+filas `end < start`: `expandLegacyNocturnal()` las expande virtualmente en
+LECTURA a las dos mitades, conservando `orig_date/orig_start/orig_end` para que
+la edición pre-llene el turno original completo. Al sobrescribir un día,
+`saveDay()` además recorta la cola nocturna del día anterior
+(`UPDATE end_time='23:59:00' WHERE end < start`).
+
+**Cálculo de extras (`computeDay`).** Por día y empleado devuelve
+`hours`, `extra` y `block_extra_detail` por bloque con su motivo:
+
+- *Organización Moderna*: umbral diario ACUMULADO — 8 h lunes a viernes,
+  5 h sábado/domingo. Los minutos por encima del umbral son extra
+  (`tipo=umbral`, guarda umbral y acumulado). Si el día es feriado nacional
+  **o local de la ciudad de la sucursal del bloque** (`holidays.city` +
+  reglas por localidad), TODO el bloque es extra (`tipo=feriado`) y NO
+  consume umbral. El feriado se evalúa POR BLOQUE: un empleado puede tener
+  un bloque feriado (sucursal de una ciudad con feriado local) y otro normal
+  el mismo día.
+- *Organización Paviotti*: las extras salen de bloques `overtime` explícitos
+  (`tipo=overtime`); el cálculo 50/100 vive en el módulo histórico.
+
+**Bloqueos (`classifyDates`).** Antes de cualquier escritura se clasifican las
+fechas: bloqueadas por bloques `vacation`/`leave` o por `employee_status_periods`
+(guardia/vacaciones/licencia), con `blocked_reason` legible. La carga
+individual, masiva y las duplicaciones OMITEN esas fechas y lo informan en la
+verificación previa. La vista previa en vivo (`previewData`) muestra el
+bloqueo antes de guardar.
+
+**Vista previa en vivo.** `carga.php` embebe `rhLiveConfig` (JSON) y
+`registro-horas-carga.js` replica `splitRange`/`blockMinutes`/`computeDay`
+en el navegador — la paridad numérica con PHP está verificada con vectores;
+si tocás la regla en PHP, tocala también en el JS (o al revés).
+
+**Escrituras atómicas.** `replaceBlock()` = borrar + insertar particionado en
+una transacción; el borrado masivo arma un preview server-side, exige tipear
+`ELIMINAR`, resuelve colas nocturnas contra el set completo de fechas y
+audita con `AuditService` (fechas incluidas). La duplicación (pares 1→N, N→N
+cronológico, por semana, o masiva por sucursal) siempre re-clasifica las
+fechas del plan en el momento de ejecutar (no confía en el preview).
+
+**Endpoints JSON.** `fechasConHoras` (días con horas + feriados para pintar
+los calendarios de selección, ventana anclada al día 1 del mes ±6) y
+`previewData` — ambos validan sucursal contra el catálogo de la organización
+y aplican el sub-alcance de encargados.
+
+### A.2 Estados y certificados
+
+`employee_status_periods(user_id, status, start_date, end_date, notes,
+attachment_path)`. Alta con rango máx. 1 año; el certificado es opcional en el
+alta y **adjuntable después** (acción `attach`, reemplaza borrando el archivo
+anterior). El listado muestra vigentes/futuros y además los FINALIZADOS de los
+últimos 60 días (para adjuntar certificados que llegan tarde). Archivos en
+`storage/private/certificates/{uid}/` (nunca bajo `public/`); la descarga
+(`registroHoras/certificado/{id}`) pasa por `resolveEmployee()` que valida
+organización y sub-alcance. Borrar un período borra su archivo.
+
+### A.3 Reclutamiento — flujo de punta a punta
+
+**Postulación pública (`CareersController::processApplication`)** — el mismo
+núcleo sirve al apply de una vacante y al formulario espontáneo:
+
+1. Honeypot (`website`) y rate limit por IP hasheada (5 req / 10 min,
+   `career_rate_limits`).
+2. Captcha de sesión (challenge aleatorio, respuesta = challenge + 3).
+3. CV: extensión + MIME real (finfo) pdf/docx, 5 MB, ClamAV opcional
+   (`CLAMSCAN_BIN`).
+4. Consentimiento activo (`career_consents`, versionado) obligatorio.
+5. Candidato deduplicado por email (renueva `retention_until` +24 meses).
+6. CV a `storage/private/cv/{candidate}/` con sha256; token de seguimiento
+   de 48 hex — solo se guarda su hash y se muestra UNA vez.
+7. La postulación nace en la PRIMERA etapa del pipeline de su vacante.
+8. Duplicado (misma vacante + candidato): respuesta indistinguible del alta
+   (anti-enumeración de emails), sin nuevo token.
+
+**Espontánea**: vacante contenedora `espontanea-{org}` creada on-demand
+(excluida del listado público); ciudad y área de interés viajan como evento
+`application_received` — visibles en la ficha del candidato.
+
+**Panel**: `applicationsOrg()` consulta TODAS las sociedades del grupo con
+filtros server-side; el cambio de etapa valida contra el `pipeline_json` de la
+vacante (una etapa huérfana tras editar el pipeline se muestra como fuera del
+pipeline pero no se puede setear); `contratado|hired` y `rechazado|rejected`
+derivan el status. La IA (`score`) extrae texto del CV (DOCX vía ZipArchive,
+PDF vía pdftotext), lo manda a OpenAI con schema estricto y guarda
+score/evidencia — decisión SIEMPRE humana. `onboard` crea el usuario
+`preingreso` inactivo + checklist de 8 tareas y redirige al legajo.
+
+**Retención**: `purge_candidate_data.php` (cron mensual, lock en
+`scheduled_job_runs`) anonimiza candidatos vencidos no contratados y borra CV.
+
+### A.4 Importadores de Moderna — idempotencia
+
+- `import_nomina.php`: resuelve por LEGAJO (`employee_company_assignments.
+  employee_number` del grupo moderna); upsert de usuario + legajo + domicilio
+  + cobertura; cargos normalizados contra `job_positions` (find-or-create).
+  Re-ejecutar actualiza, no duplica.
+- `import_vacaciones.php`: por cada colaborador, upsert del período anual
+  (clave usuario+label), movimientos `accrual`/`opening_balance`/`take` con
+  `operation_key` único (`imp{año}:tipo:{user}[:{desde}]`) — INSERT IGNORE →
+  re-ejecutar no duplica; cada día tomado se materializa como bloque
+  `vacation` (skip si ya existe); sincroniza `users.vacation_days_available`
+  (compat v1). El `agreement_rule_id` se resuelve por MESES desde la FECHA DE
+  INGRESO al fin del período (regla Moderna) contra la escala del CCT 430/05,
+  y el convenio SIEMPRE por `code='FARMACIA-430-05'` (el id numérico difiere
+  entre entornos).
+
+### A.5 Roadmap RRHH y Vacaciones tomadas
+
+- Roadmap: dos fuentes unificadas y deduplicadas por `usuario|tipo|fecha` —
+  `employee_status_periods` (rangos solapados con el mes) y los bloques
+  `vacation`/`leave` de `employee_schedules`. Colores: `companies.brand_color`;
+  si varias empresas comparten el color (default `#e91e8c`), se les asigna una
+  paleta determinística. Filtros empresa/ciudad/sucursal validados
+  server-side (una sucursal incoherente con la empresa/ciudad elegida se
+  descarta); el alcance por sucursal considera `users.branch_id` Y
+  `employee_branch_assignments`.
+- Vacaciones tomadas: lee los movimientos `take` de vacaciones v2 — `desde` y
+  `hasta` salen del propio `schedule_dates` (JSON de días) — y clasifica cada
+  tramo en Pasada / En curso / Futura contra hoy.
+
+### A.6 Contexto "Todas las empresas" — contrato
+
+`$_SESSION['admin_company_all']` es un FLAG sobre la empresa ancla (que nunca
+se pierde). `adminCompanyIds()` devuelve `[ancla]` o todas las del grupo; las
+pantallas org-wide consultan con `IN (...)` y las acciones (p. ej. aprobar una
+solicitud) validan pertenencia contra ESA lista, no contra la ancla. Elegir
+una empresa puntual en el selector apaga el flag. Encargados/supervisores no
+acceden al modo (perfil, no solo UI). Si sumás una pantalla al modo: cambiar
+la consulta a `IN`, validar las acciones contra `adminCompanyIds()`, y nada
+más — el selector y el flag ya están.
