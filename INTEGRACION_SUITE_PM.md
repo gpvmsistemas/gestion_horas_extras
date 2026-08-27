@@ -217,7 +217,77 @@ pero cualquier SQL/feature nueva debe respetarlas:
   URLROOT `http://144.217.165.202/gestion_horas_extra`.
 - `main` sigue intacta: el merge `integracion → main` espera tu validación.
 
-## 10. Pendientes / backlog
+## 10. Registro de cambios respecto del sistema base
+
+La rama tiene 57 commits sobre `main`. Los primeros (~`6947aab..af1be3f`) son
+trabajo propio de Lautaro ya conocido (vacaciones v2, reglas de feriados,
+legajo ampliado, programa RRHH integral, control de asistencia); desde
+`ad3303c` empieza la integración. Cada mensaje de commit explica el porqué:
+`git log --reverse main..integracion` para el detalle completo.
+
+**Fundación organizacional**
+- `ad3303c` `b9c01a9` `94d3781` — bifurcación Paviotti/Moderna: employee_group,
+  selector de contexto bloqueado, tema visual por organización (variables CSS).
+- `e1eea66` `1bf453c` — estructura societaria real de Moderna (3 empresas,
+  32 sucursales) y alcance org-wide.
+- `9e0ec6e` — la ficha abre para todas las sociedades del grupo con aislamiento.
+- `97598df` — `getAllCompanies()` filtrado por grupo (cerró ~20 pantallas que
+  enumeraban empresas de ambos mundos) + reporte de vacaciones aislado (IDOR
+  de saldos por `company_id` ajeno).
+- `2f97087` — contexto **"Todas las empresas"** en el selector.
+- `1d224f4` — cero menciones de Ecofarma en vistas Moderna (y viceversa).
+
+**Registro de Horas** (módulo nuevo, no existía en el base)
+- `c3ccdcd` `723d77e` `a55063a` — módulo con lógica real por organización,
+  conectado a sucursales/feriados relacionales; feriados evaluados por bloque.
+- `5adcd8d` — 9 correcciones de la auditoría contra hoursapp (portabilidad).
+- `9f0bec7` `9c0e0a5` `e114174` `009c257` — edición/borrados/duplicaciones,
+  vista Por sucursal, calendarios de selección masiva, tooltips con color,
+  origen de cada hora extra, horario de atención editable, carga con vista
+  previa EN VIVO (JS espejo del cálculo del servidor).
+- `82af093` — el portal del empleado muestra la sucursal del bloque (no el
+  enum `custom`).
+- `8c14e67` `92df752` — estados con certificado adjunto (al crear o después,
+  con finalizados visibles 60 días) + Roadmap RRHH.
+
+**Reclutamiento / Vacantes** (extiende TU módulo ATS, no lo reemplaza)
+- `3f062d0` — portal público por organización + ciclo de vida completo de
+  vacantes + validación de etapas contra el pipeline (bug del base: etapas de
+  texto libre visibles al candidato).
+- `b961f6d` — panel centrado en candidatos estilo Moderna (KPIs, filtros,
+  estado por fila), postulación espontánea `/unete`, pipeline en español, y
+  los 9 hallazgos de la revisión adversarial — incluidos DOS del sistema base:
+  el candado organizacional bypasseable vía `access/setContext` y el scope del
+  login, y el `input date` que borraba `closes_at` en cada edición.
+- `bcd7fa5` — filtro de estado sin etapas legacy en inglés.
+
+**Datos Moderna**
+- `bef05f0` — ficha personal + limpieza + importador de nóminas.
+- `831ba1e` — importador de vacaciones al módulo v2; el calendario pinta los
+  bloques de vacaciones.
+- `71cfaf0` — vista "Vacaciones tomadas".
+
+**Fixes al sistema base que te conviene conocer**
+- `db9cb9e` — `updateUser` con campos numéricos vacíos daba 1366 en MySQL 8
+  (editar un usuario = 500); `Database` fija sql_mode por sesión.
+- `1a7ca87` `3632f30` — colación unificada `utf8mb4_general_ci` (error 1267
+  entre tablas nuevas 0900 y viejas general_ci; Alertas RRHH caía).
+- `92a4a18` — un `@media` sin cerrar en `style.css` dejaba muerto TODO el
+  final del archivo en escritorio (tema Moderna, calendarios, tooltips).
+- `6d47c71` — estado `:checked` de los botones outline nunca estuvo tematizado
+  (caía al azul Bootstrap); fondo del botón Cerrar sesión.
+- `2ef5fbd` — "Bienes y constancias" del portal accedía variables que `view()`
+  no define (notices + foreach inválido).
+- `c9bee62` — videos en los avisos emergentes (streaming autenticado).
+
+**Infraestructura de despliegue** (nacida de las 5 divergencias del §8)
+- `a27e664` `1776a78` `5ca578d` `00d8e37` — guía de despliegue, applier
+  idempotente para MySQL, alineación completa de vacaciones v2 (en el VPS
+  estaba a medias) y del programa hr_operations_talent (nunca aplicado allí).
+- `6465084` `b7b4c04` — alta CLI de `axel.moderna`.
+- `2ef5fbd` — verificador exhaustivo código↔esquema.
+
+## 11. Pendientes / backlog
 
 - **Repo a PRIVADO** (urgente: es RRHH y el historial referencia el esquema de
   credenciales) y HTTPS/dominio para el VPS (hoy HTTP plano; los bots ya
