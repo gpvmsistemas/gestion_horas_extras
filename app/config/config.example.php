@@ -15,3 +15,11 @@
 define('DB_PASS', 'cambiar');
 define('CLOCK_API_PASSWORD', 'cambiar');
 define('EXTINTOS_DB_PASS', 'cambiar');
+
+// ATS asistido por IA. Nunca versionar la clave real.
+define('OPENAI_API_KEY', '');
+define('OPENAI_CV_MODEL', 'gpt-5.6-luna');
+// Opcional: ruta absoluta a clamscan para exigir análisis antivirus de CV.
+define('CLAMSCAN_BIN', '');
+// Opcional: ruta absoluta a pdftotext para extracción local de CV PDF.
+define('PDFTOTEXT_BIN', 'pdftotext');

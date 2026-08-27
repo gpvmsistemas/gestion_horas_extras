@@ -75,6 +75,30 @@ class RequestController {
         protected_upload_send('request_certificates/' . $request->certificate_path, true, basename((string)$request->certificate_path));
     }
 
+    public function vacationPreview() {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !vacation_module_ready()) {
+            echo json_encode(['ok'=>false, 'message'=>'Vista previa no disponible.']);
+            exit;
+        }
+        csrf_verify();
+        $userId = (int)$_SESSION['user_id'];
+        $start = trim($_POST['start_date'] ?? '');
+        $end = trim($_POST['end_date'] ?? '') ?: $start;
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end)) {
+            echo json_encode(['ok'=>false, 'message'=>'Seleccioná las fechas.']);
+            exit;
+        }
+        $preview = (new VacationLedgerService())->previewRequest((object)[
+            'user_id'=>$userId, 'start_date'=>$start, 'end_date'=>$end,
+        ]);
+        $available = (new VacationBalance())->getTotalPending($userId);
+        $preview['total_available'] = $available;
+        $preview['remaining_after'] = $preview['ok'] ? max(0, $available - (float)$preview['days']) : $available;
+        echo json_encode($preview, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     public function create() {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             redirect('request/index');
@@ -85,6 +109,14 @@ class RequestController {
         $user = $this->userModel->getUserById($userId);
         $typeId = (int)($_POST['request_type_id'] ?? 0);
         $type = $this->getRequestTypeById($typeId);
+        $requestedStart = trim($_POST['start_date'] ?? '');
+        $requestedEnd = !empty($_POST['end_date']) ? trim($_POST['end_date']) : $requestedStart;
+
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedStart)
+            || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedEnd) || $requestedEnd < $requestedStart) {
+            $_SESSION['flash_error'] = 'Indicá un rango de fechas válido.';
+            redirect('request/index?tab=absence');
+        }
 
         if ($this->isVacationType($type) && !employee_portal_can('vacation_balance')) {
             $_SESSION['flash_error'] = 'Las solicitudes de vacaciones no están disponibles en el portal.';
@@ -95,9 +127,15 @@ class RequestController {
             $entitlement = new VacationEntitlementService();
             $days = $entitlement->countDaysForUserRange(
                 $userId,
-                trim($_POST['start_date'] ?? ''),
-                !empty($_POST['end_date']) ? trim($_POST['end_date']) : trim($_POST['start_date'] ?? '')
+                $requestedStart,
+                $requestedEnd
             );
+            $agreement = $entitlement->getEffectiveAgreement($user);
+            if (!$agreement) {
+                $_SESSION['flash_error'] = 'No tenés un convenio de vacaciones asignado. Pedí a RRHH que complete tu encuadramiento.';
+                redirect('request/index?tab=absence');
+            }
+            $minimumDays = (float)($agreement->minimum_request_days ?? 7);
             $pending = (new VacationBalance())->getTotalPending($userId);
             if ($days <= 0) {
                 $_SESSION['flash_error'] = 'El rango de fechas no tiene días hábiles de vacaciones.';
@@ -105,6 +143,11 @@ class RequestController {
             }
             if ($days > $pending) {
                 $_SESSION['flash_error'] = 'No tenés suficientes días pendientes (' . vacation_format_days($pending) . '). Pedí a RRHH la liquidación del período.';
+                redirect('request/index?tab=absence');
+            }
+            if ($days < $minimumDays) {
+                $_SESSION['flash_error'] = 'La solicitud de vacaciones debe comprender al menos '
+                    . vacation_format_days($minimumDays) . ' días computables. Tu saldo restante no se pierde.';
                 redirect('request/index?tab=absence');
             }
         } elseif ($this->isVacationType($type)) {
@@ -128,8 +171,8 @@ class RequestController {
         $data = [
             'user_id'         => $userId,
             'request_type_id' => $typeId,
-            'start_date'      => trim($_POST['start_date'] ?? ''),
-            'end_date'        => !empty($_POST['end_date']) ? trim($_POST['end_date']) : trim($_POST['start_date'] ?? ''),
+            'start_date'      => $requestedStart,
+            'end_date'        => $requestedEnd,
             'reason'          => trim(strip_tags($_POST['reason'] ?? '')),
         ];
 

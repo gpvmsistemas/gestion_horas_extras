@@ -1,0 +1,2 @@
+<?php
+class AuditController {private $m;public function __construct(){if(!isStaffAdmin())redirect('login');$this->m=new HrSuite();}public function index(){require_capability('audit.view');$rows=$this->m->query('SELECT ae.*,u.full_name actor_name FROM audit_events ae LEFT JOIN users u ON u.id=ae.actor_user_id WHERE ae.company_id=? ORDER BY ae.id DESC LIMIT 500',[requireAdminCompany()]);require APPROOT.'/views/admin/audit/index.php';}}

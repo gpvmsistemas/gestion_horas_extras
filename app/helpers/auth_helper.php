@@ -27,6 +27,50 @@ function adminCompanyId() {
     return isset($_SESSION['user_company_id']) ? (int)$_SESSION['user_company_id'] : 0;
 }
 
+/** Sucursal operativa elegida dentro de la empresa activa (0 = todas). */
+function adminBranchId() {
+    $branchId = (int)($_SESSION['admin_branch_id'] ?? 0);
+    $companyId = adminCompanyId();
+    if ($branchId <= 0 || $companyId <= 0) return 0;
+    if (!(new Company())->getBranchByIdForCompany($branchId, $companyId, true)) {
+        unset($_SESSION['admin_branch_id']);
+        return 0;
+    }
+    return $branchId;
+}
+
+/**
+ * Modo "todas las empresas del grupo" en el contexto operativo.
+ * Solo para perfiles administrador/rrhh (nunca encargados/supervisores).
+ */
+function adminAllCompaniesActive() {
+    if (empty($_SESSION['admin_company_all']) || isSupervisor()) {
+        return false;
+    }
+    if (function_exists('access_control_ready') && access_control_ready()
+        && !in_array(access_current_role(), ['administrador', 'rrhh'], true)) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Empresas del contexto operativo: [empresa activa] o, con el modo "Todas"
+ * activo, todas las del grupo organizacional de la empresa activa.
+ */
+function adminCompanyIds() {
+    $anchor = adminCompanyId();
+    if ($anchor > 0 && adminAllCompaniesActive()
+        && function_exists('org_group_of_company') && function_exists('org_group_company_ids')) {
+        $group = org_group_of_company($anchor);
+        $ids = $group !== '' ? array_map('intval', org_group_company_ids($group)) : [];
+        if ($ids) {
+            return $ids;
+        }
+    }
+    return $anchor > 0 ? [$anchor] : [];
+}
+
 /**
  * Exige empresa en sesión; redirige si falta.
  */
@@ -51,6 +95,19 @@ function setAdminActiveCompany($companyId) {
     if (!$companyModel->getById($companyId)) {
         return false;
     }
+    // Usuario bloqueado a una organización (employee_group): jamás puede
+    // activar una empresa del otro grupo, por NINGÚN camino (fichas, selector,
+    // simulador). Complementa la guardia del selector de Contexto.
+    if (function_exists('org_locked_group') && function_exists('org_group_of_company')) {
+        $locked = org_locked_group();
+        if ($locked !== '' && org_group_of_company($companyId) !== $locked) {
+            return false;
+        }
+    }
+    if (function_exists('access_control_ready') && access_control_ready()
+        && !access_user_can_manage_company((int)$_SESSION['user_id'], $companyId)) {
+        return false;
+    }
     if (isSupervisor()) {
         $admin = (new User())->getUserById((int)($_SESSION['user_id'] ?? 0));
         if (!$admin || (int)($admin->company_id ?? 0) !== $companyId) {
@@ -59,6 +116,10 @@ function setAdminActiveCompany($companyId) {
     }
     $_SESSION['user_company_id'] = $companyId;
     $_SESSION['user_company_name'] = $companyModel->getNameById($companyId);
+    if ((int)($_SESSION['admin_branch_id'] ?? 0) > 0
+        && !$companyModel->getBranchByIdForCompany((int)$_SESSION['admin_branch_id'], $companyId, true)) {
+        unset($_SESSION['admin_branch_id']);
+    }
     return true;
 }
 
@@ -82,6 +143,28 @@ function admin_safe_return_path($returnUrl, $default = 'admin/dashboard') {
         return $default;
     }
     return ltrim($path, '/');
+}
+
+/**
+ * Evita volver, tras cambiar de empresa, a una entidad identificada en el
+ * contexto anterior. Las pantallas de colección conservan sus filtros.
+ */
+function admin_company_switch_return_path($returnUrl) {
+    $path = admin_safe_return_path($returnUrl, 'admin/dashboard');
+    $pathOnly = parse_url('/' . ltrim($path, '/'), PHP_URL_PATH) ?: '/';
+    $contextRoutes = [
+        '#^/admin/(?:employeeProfile|employeeDetails|editUser|editEntry|editRequest)/#' => 'admin/users',
+        '#^/admin/editCompany/#' => 'admin/companies',
+        '#^/vacationAdmin/(?:vacationSetup|editAgreement)/#' => 'vacationAdmin/agreements',
+        '#^/salaryAdvanceAdmin/(?:installments|history|receipt)/#' => 'salaryAdvanceAdmin/index',
+        '#^/cpTaskAdmin/closureDetail/#' => 'cpTaskAdmin/reports',
+        '#^/trainingAdmin/(?:courseEdit|previewLesson)/#' => 'trainingAdmin/courses',
+        '#^/surveyAdmin/(?:edit|results)/#' => 'surveyAdmin/index',
+    ];
+    foreach ($contextRoutes as $pattern => $fallback) {
+        if (preg_match($pattern, $pathOnly)) return $fallback;
+    }
+    return $path;
 }
 
 function userBelongsToCompany($userId, $companyId) {
@@ -115,6 +198,11 @@ function requireAdminOnly($redirectTo = 'admin/dashboard') {
     if (!isLoggedIn() || !isStaffAdmin()) {
         redirect('login');
     }
+    if (function_exists('access_control_ready') && access_control_ready()
+        && !in_array(access_current_role(), ['administrador', 'rrhh'], true)) {
+        $_SESSION['flash_error'] = 'Esta acción requiere perfil Administrador o RRHH.';
+        redirect($redirectTo);
+    }
     if (isSupervisor()) {
         $_SESSION['flash_error'] = 'Esta acción solo está disponible para administradores RRHH.';
         redirect($redirectTo);
@@ -126,6 +214,18 @@ function supervisorCanAccessUser($user) {
         return false;
     }
     if ((int)($user->company_id ?? 0) !== adminCompanyId()) {
+        return false;
+    }
+    if (function_exists('access_control_ready') && access_control_ready()) {
+        $role = access_current_role();
+        if ($role === 'administrador' || $role === 'rrhh' || $role === 'coordinador') {
+            return access_can_manage_company((int)($user->company_id ?? 0), 0);
+        }
+        if ($role === 'encargado') {
+            $scope = access_current_scope();
+            return $scope && (int)($scope->company_id ?? 0) === (int)($user->company_id ?? 0)
+                && (int)($scope->branch_id ?? 0) > 0 && (new User())->isUserAssignedToBranch((int)$user->id, (int)$scope->branch_id);
+        }
         return false;
     }
     if (!isSupervisor()) {

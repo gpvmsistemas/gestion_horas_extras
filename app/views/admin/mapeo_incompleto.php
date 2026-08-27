@@ -4,14 +4,11 @@
     <div class="admin-page-brand">
         <div class="admin-page-icon"><i class="fas fa-unlink"></i></div>
         <div class="admin-page-meta">
-            <h2 class="page-title">Mapeo incompleto</h2>
-            <p class="page-subtitle mb-0">Legajos con marcaciones en caché sin vínculo a un empleado RRHH</p>
+            <h2 class="page-title">Pendientes de identificación</h2>
+            <p class="page-subtitle mb-0">Solo fichadas sin persona asignada: vinculá únicamente a quienes usan reloj.</p>
         </div>
     </div>
     <div class="admin-page-actions d-flex gap-2">
-        <a href="<?php echo URLROOT; ?>/admin/mapeoApi" class="btn btn-outline-primary btn-sm">
-            <i class="fas fa-link me-1"></i> Mapeo API
-        </a>
         <a href="<?php echo URLROOT; ?>/admin/sync" class="btn btn-outline-secondary btn-sm">
             <i class="fas fa-sync me-1"></i> Sincronizar
         </a>

@@ -18,7 +18,9 @@
 
 <div class="list-group shadow-sm">
     <?php foreach ($data['items'] as $n):
-        $href = !empty($n->link_url) ? $n->link_url : '#';
+        $href = function_exists('employee_portal_safe_link_url')
+            ? employee_portal_safe_link_url($n->link_url ?? '', '#')
+            : '#';
     ?>
     <a href="<?php echo htmlspecialchars($href, ENT_QUOTES, 'UTF-8'); ?>"
        class="list-group-item list-group-item-action emp-notif-item<?php echo empty($n->read_at) ? ' list-group-item-primary' : ''; ?>"

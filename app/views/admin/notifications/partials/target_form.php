@@ -1,5 +1,5 @@
 <?php
-$selected = $selected ?? ['target_all' => false, 'company_ids' => [], 'area_ids' => [], 'user_ids' => []];
+$selected = $selected ?? ['target_all' => false, 'company_ids' => [], 'area_ids' => [], 'employee_groups' => [], 'user_ids' => []];
 $targetingJson = notification_targeting_json([
     'companies' => $companies,
     'areas' => $areas,
@@ -51,6 +51,19 @@ $targetingJson = notification_targeting_json([
                         </div>
                         <?php endforeach; ?>
                     </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label small fw-semibold">Grupo organizacional</label>
+                <div class="notif-filter-box">
+                    <?php foreach (User::organizationGroupOptions() as $groupKey => $groupLabel): ?>
+                    <div class="form-check">
+                        <input type="checkbox" name="employee_groups[]" value="<?php echo htmlspecialchars($groupKey); ?>"
+                            class="form-check-input notif-filter-group" id="group<?php echo htmlspecialchars($groupKey); ?>"
+                            <?php echo in_array($groupKey, $selected['employee_groups'] ?? [], true) ? 'checked' : ''; ?>>
+                        <label class="form-check-label" for="group<?php echo htmlspecialchars($groupKey); ?>"><?php echo htmlspecialchars($groupLabel); ?></label>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary mb-3" id="btnUpdateRecipients">

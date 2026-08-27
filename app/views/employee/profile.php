@@ -43,9 +43,12 @@ $photo = !empty($user->profile_picture) ? $user->profile_picture : 'default.png'
 </div>
 
 <div class="emp-card mt-3">
-    <a href="<?php echo URLROOT; ?>/login/logout" class="btn btn-outline-danger w-100">
+    <form method="post" action="<?php echo URLROOT; ?>/login/logout">
+        <?php echo csrf_field(); ?>
+    <button type="submit" class="btn btn-outline-danger w-100">
         <i class="fas fa-sign-out-alt me-2"></i>Cerrar sesión
-    </a>
+    </button>
+    </form>
 </div>
 
 <div style="height:80px" class="d-lg-none">

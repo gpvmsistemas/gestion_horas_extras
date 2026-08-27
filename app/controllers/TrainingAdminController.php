@@ -215,6 +215,8 @@ class TrainingAdminController {
                 'first_finisher_bonus' => (int)($_POST['first_finisher_bonus'] ?? 2),
                 'passing_score' => (int)($_POST['passing_score'] ?? 70),
                 'estimated_minutes' => (int)($_POST['estimated_minutes'] ?? 60),
+                'duration_hours' => trim($_POST['duration_hours'] ?? ''),
+                'certificate_valid_days' => trim($_POST['certificate_valid_days'] ?? ''),
                 'require_quiz' => !empty($_POST['require_quiz']),
                 'max_quiz_attempts' => (int)($_POST['max_quiz_attempts'] ?? 3),
                 'is_published' => !empty($_POST['is_published']),

@@ -23,7 +23,7 @@
                         <a href="<?php echo URLROOT; ?>/trainingAdmin/courseEdit/<?php echo $cid; ?>?tab=lesson&edit_lesson=<?php echo (int)$l->id; ?>" class="btn btn-sm btn-primary">Editar</a>
                         <form method="post" action="<?php echo URLROOT; ?>/trainingAdmin/deleteLesson/<?php echo $cid; ?>/<?php echo (int)$l->id; ?>" class="d-inline" onsubmit="return confirm('¿Eliminar?')">
                             <?php echo csrf_field(); ?>
-                            <button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" aria-label="Eliminar lección" title="Eliminar lección"><i class="fas fa-trash"></i></button>
                         </form>
                     </div>
                 <?php endforeach; ?>

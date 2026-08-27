@@ -24,7 +24,9 @@
         <?php else: ?>
         <div class="topbar-notify-list">
             <?php foreach ($_empNotificationsPreview as $n):
-                $nHref = !empty($n->link_url) ? $n->link_url : URLROOT . '/employee/notifications';
+                $nHref = function_exists('employee_portal_safe_link_url')
+                    ? employee_portal_safe_link_url($n->link_url ?? '', URLROOT . '/employee/notifications')
+                    : URLROOT . '/employee/notifications';
                 $isUnread = empty($n->read_at);
             ?>
             <a href="<?php echo htmlspecialchars($nHref, ENT_QUOTES, 'UTF-8'); ?>"

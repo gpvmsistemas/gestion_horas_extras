@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Resuelve destinatarios (empleados activos) según targeting company/area/user.
+ * Resuelve destinatarios (empleados activos) según targeting company/area/group/user.
  */
 class NotificationTargetService {
 
@@ -9,10 +9,12 @@ class NotificationTargetService {
         $targetAll = !empty($options['target_all']);
         $companyIds = isset($options['company_ids']) ? array_map('intval', (array)$options['company_ids']) : [];
         $areaIds = isset($options['area_ids']) ? array_map('intval', (array)$options['area_ids']) : [];
+        $employeeGroups = isset($options['employee_groups']) ? (array)$options['employee_groups'] : [];
         $userIds = isset($options['user_ids']) ? array_map('intval', (array)$options['user_ids']) : [];
 
         $companyIds = array_values(array_filter($companyIds));
         $areaIds = array_values(array_filter($areaIds));
+        $employeeGroups = array_values(array_unique(array_filter(array_map(['User', 'normalizeOrganizationGroup'], $employeeGroups))));
         $userIds = array_values(array_filter($userIds));
 
         if ($targetAll) {
@@ -25,6 +27,9 @@ class NotificationTargetService {
         }
         foreach ($areaIds as $aid) {
             $ids = array_merge($ids, $this->getEmployeeIdsByArea($aid));
+        }
+        foreach ($employeeGroups as $group) {
+            $ids = array_merge($ids, $this->getEmployeeIdsByOrganizationGroup($group));
         }
         foreach ($userIds as $uid) {
             $ids[] = $uid;
@@ -41,6 +46,7 @@ class NotificationTargetService {
             'target_all' => !empty($post['target_all']),
             'company_ids' => isset($post['company_ids']) ? (array)$post['company_ids'] : [],
             'area_ids' => isset($post['area_ids']) ? (array)$post['area_ids'] : [],
+            'employee_groups' => isset($post['employee_groups']) ? (array)$post['employee_groups'] : [],
             'user_ids' => isset($post['user_ids']) ? (array)$post['user_ids'] : [],
         ];
     }
@@ -81,6 +87,18 @@ class NotificationTargetService {
         if ($companyId > 0) {
             $db->bind(':cid', $companyId);
         }
+        return array_map(function ($r) {
+            return (int)$r->id;
+        }, $db->resultSet());
+    }
+
+    private function getEmployeeIdsByOrganizationGroup($group) {
+        if (!(new User())->isOrganizationGroupReady()) {
+            return [];
+        }
+        $db = new Database();
+        $db->query("SELECT id FROM users WHERE employee_group = :grp AND role = 'empleado' AND is_active = 1");
+        $db->bind(':grp', User::normalizeOrganizationGroup($group));
         return array_map(function ($r) {
             return (int)$r->id;
         }, $db->resultSet());

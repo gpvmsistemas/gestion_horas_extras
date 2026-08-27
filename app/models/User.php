@@ -3,8 +3,8 @@
 class User {
     private $db;
 
-    public function __construct(){
-        $this->db = new Database;
+    public function __construct($db = null){
+        $this->db = $db instanceof Database ? $db : new Database;
     }
 
     public function findUserByUsername($username){
@@ -95,6 +95,35 @@ class User {
         return $opts[$code] ?? ($code ?: '—');
     }
 
+    public static function organizationGroupOptions() {
+        return [
+            'paviotti' => 'Paviotti',
+            'moderna' => 'Moderna',
+        ];
+    }
+
+    public static function normalizeOrganizationGroup($value) {
+        $value = strtolower(trim((string)$value));
+        return array_key_exists($value, self::organizationGroupOptions()) ? $value : 'paviotti';
+    }
+
+    public static function attendanceControlOptions() {
+        return ['required' => 'Obligatorio — genera alertas', 'flexible' => 'Flexible — registra sin alertas', 'no_clock' => 'Sin reloj — no controla fichadas'];
+    }
+
+    public static function normalizeAttendanceControlMode($value) {
+        $value = strtolower(trim((string)$value));
+        return array_key_exists($value, self::attendanceControlOptions()) ? $value : 'required';
+    }
+
+    public function isAttendanceControlReady() {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try { $this->db->query("SHOW COLUMNS FROM users LIKE 'attendance_control_mode'"); $ready = (bool)$this->db->single(); }
+        catch (Throwable $e) { $ready = false; }
+        return $ready;
+    }
+
     /** Campos de perfil desde POST (crear / editar usuario). */
     public static function profileFromPost(array $post) {
         $sex = isset($post['sex']) ? trim((string)$post['sex']) : '';
@@ -127,7 +156,43 @@ class User {
             'birth_date'              => $birth,
             'emergency_contact_name'  => isset($post['emergency_contact_name']) ? trim((string)$post['emergency_contact_name']) : null,
             'emergency_contact_phone' => isset($post['emergency_contact_phone']) ? trim((string)$post['emergency_contact_phone']) : null,
+            'emergency_contact_relationship' => isset($post['emergency_contact_relationship']) ? trim((string)$post['emergency_contact_relationship']) : null,
+            'marital_status'          => self::normalizeMaritalStatus($post['marital_status'] ?? ''),
+            'children_count'          => (isset($post['children_count']) && $post['children_count'] !== '') ? max(0, (int)$post['children_count']) : null,
+            'hr_notes'                => isset($post['hr_notes']) ? trim((string)$post['hr_notes']) : null,
         ];
+    }
+
+    /** Opciones de estado civil (valores de la nómina de RRHH). */
+    public static function maritalStatusOptions() {
+        return [
+            ''             => '— Sin definir —',
+            'Soltero/a'    => 'Soltero/a',
+            'Casado/a'     => 'Casado/a',
+            'Concubinato'  => 'Concubinato',
+            'Divorciado/a' => 'Divorciado/a',
+            'Viudo/a'      => 'Viudo/a',
+        ];
+    }
+
+    public static function normalizeMaritalStatus($value) {
+        $value = trim((string)$value);
+        return array_key_exists($value, self::maritalStatusOptions()) && $value !== '' ? $value : null;
+    }
+
+    /** migración migration_ficha_personal.sql aplicada (estado civil, hijos, parentesco, observaciones). */
+    public function isPersonalFileReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM `users` LIKE 'marital_status'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
     }
 
     public function isProfileExtendedReady() {
@@ -142,6 +207,15 @@ class User {
     public function isAreaReady() {
         try {
             $this->db->query("SHOW COLUMNS FROM `users` LIKE 'area_id'");
+            return (bool)$this->db->single();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    public function isOrganizationGroupReady() {
+        try {
+            $this->db->query("SHOW COLUMNS FROM `users` LIKE 'employee_group'");
             return (bool)$this->db->single();
         } catch (Throwable $e) {
             return false;
@@ -264,6 +338,27 @@ class User {
             $cols[] = 'area_id';
             $vals[] = $areaId;
         }
+        if ($this->isOrganizationGroupReady()) {
+            $cols[] = 'employee_group';
+            $vals[] = self::normalizeOrganizationGroup($data['employee_group'] ?? 'paviotti');
+        }
+        if ($this->isBranchAssignmentReady()) {
+            $cols[] = 'branch_id';
+            $vals[] = isset($data['branch_id']) && (int)$data['branch_id'] > 0 ? (int)$data['branch_id'] : null;
+        }
+        if ($this->isAttendanceControlReady()) {
+            $cols[] = 'attendance_control_mode';
+            $vals[] = self::normalizeAttendanceControlMode($data['attendance_control_mode'] ?? 'required');
+        }
+        if ($this->isPersonalFileReady()) {
+            $cols = array_merge($cols, ['marital_status', 'children_count', 'emergency_contact_relationship', 'hr_notes']);
+            $vals = array_merge($vals, [
+                $data['marital_status'] ?? null,
+                $data['children_count'] ?? null,
+                $data['emergency_contact_relationship'] ?? null,
+                ($data['hr_notes'] ?? '') !== '' ? $data['hr_notes'] : null,
+            ]);
+        }
 
         $cols = array_merge($cols, $this->employmentColumnNames());
         $vals = array_merge($vals, $this->employmentValues($data));
@@ -273,7 +368,18 @@ class User {
 
         $placeholders = implode(', ', array_fill(0, count($cols), '?'));
         $this->db->query('INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')');
-        return $this->db->execute($vals);
+        if (!$this->db->execute($vals)) {
+            return false;
+        }
+        if ($this->isMultipleBranchAssignmentsReady()) {
+            return $this->saveBranchAssignments(
+                (int)$this->db->lastInsertId(),
+                $companyId,
+                $data['branch_ids'] ?? [],
+                (int)($data['branch_id'] ?? 0)
+            );
+        }
+        return true;
     }
 
     public function updateUser($data) {
@@ -294,14 +400,26 @@ class User {
             $data['full_name'],
             $data['role'],
             $companyId,
-            $data['hourly_rate'],
-            $data['weekly_hour_limit'],
-            $data['vacation_days_available'] ?? 0,
+            is_numeric($data['hourly_rate'] ?? null) ? $data['hourly_rate'] : 0,
+            is_numeric($data['weekly_hour_limit'] ?? null) ? $data['weekly_hour_limit'] : 0,
+            is_numeric($data['vacation_days_available'] ?? null) ? $data['vacation_days_available'] : 0,
         ];
 
         if ($areaReady) {
             $sets[] = 'area_id = ?';
             $vals[] = isset($data['area_id']) && (int)$data['area_id'] > 0 ? (int)$data['area_id'] : null;
+        }
+        if ($this->isOrganizationGroupReady()) {
+            $sets[] = 'employee_group = ?';
+            $vals[] = self::normalizeOrganizationGroup($data['employee_group'] ?? 'paviotti');
+        }
+        if ($this->isBranchAssignmentReady()) {
+            $sets[] = 'branch_id = ?';
+            $vals[] = isset($data['branch_id']) && (int)$data['branch_id'] > 0 ? (int)$data['branch_id'] : null;
+        }
+        if ($this->isAttendanceControlReady()) {
+            $sets[] = 'attendance_control_mode = ?';
+            $vals[] = self::normalizeAttendanceControlMode($data['attendance_control_mode'] ?? 'required');
         }
         if ($profileReady) {
             $sets = array_merge($sets, [
@@ -327,6 +445,20 @@ class User {
                 $data['birth_date'] ?? null,
                 $data['emergency_contact_name'] ?? null,
                 $data['emergency_contact_phone'] ?? null,
+            ]);
+        }
+        if ($this->isPersonalFileReady()) {
+            $sets = array_merge($sets, [
+                'marital_status = ?',
+                'children_count = ?',
+                'emergency_contact_relationship = ?',
+                'hr_notes = ?',
+            ]);
+            $vals = array_merge($vals, [
+                $data['marital_status'] ?? null,
+                is_numeric($data['children_count'] ?? null) ? (int)$data['children_count'] : null,
+                $data['emergency_contact_relationship'] ?? null,
+                ($data['hr_notes'] ?? '') !== '' ? $data['hr_notes'] : null,
             ]);
         }
         foreach ($this->employmentColumnNames() as $col) {
@@ -381,6 +513,109 @@ class User {
         return $row;
     }
 
+    public function getUserByUsername($username) {
+        $this->db->query('SELECT * FROM users WHERE username = ? LIMIT 1');
+        return $this->db->single([trim((string)$username)]);
+    }
+
+    /** La migración de sedes puede aplicarse después del código sin romper altas existentes. */
+    public function isBranchAssignmentReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM users LIKE 'branch_id'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    /** Relación N:M: un empleado puede trabajar en varias sucursales. */
+    public function isMultipleBranchAssignmentsReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW TABLES LIKE 'employee_branch_assignments'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    public function getBranchAssignmentsForUser($userId) {
+        if (!$this->isMultipleBranchAssignmentsReady()) {
+            $user = $this->getUserById((int)$userId);
+            if (!$user || empty($user->branch_id)) return [];
+            $this->db->query('SELECT b.*, 1 AS is_primary FROM company_branches b WHERE b.id = ?');
+            return $this->db->resultSet([(int)$user->branch_id]);
+        }
+        $this->db->query('SELECT b.*, eba.is_primary FROM employee_branch_assignments eba
+            INNER JOIN company_branches b ON b.id = eba.branch_id
+            WHERE eba.user_id = ? ORDER BY eba.is_primary DESC, b.locality ASC, b.name ASC');
+        return $this->db->resultSet([(int)$userId]);
+    }
+
+    public function isUserAssignedToBranch($userId, $branchId) {
+        if ((int)$userId <= 0 || (int)$branchId <= 0) return false;
+        if ($this->isMultipleBranchAssignmentsReady()) {
+            $this->db->query('SELECT 1 FROM employee_branch_assignments WHERE user_id = ? AND branch_id = ? LIMIT 1');
+            return (bool)$this->db->single([(int)$userId, (int)$branchId]);
+        }
+        $user = $this->getUserById((int)$userId);
+        return $user && (int)($user->branch_id ?? 0) === (int)$branchId;
+    }
+
+    public function saveBranchAssignments($userId, $companyId, $branchIds, $primaryBranchId = 0) {
+        if (!$this->isMultipleBranchAssignmentsReady()) {
+            return true;
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$branchIds))));
+        $primaryBranchId = (int)$primaryBranchId;
+        if ($primaryBranchId > 0 && !in_array($primaryBranchId, $ids, true)) {
+            $ids[] = $primaryBranchId;
+        }
+        if (empty($ids)) {
+            $primaryBranchId = 0;
+        } elseif ($primaryBranchId <= 0) {
+            $primaryBranchId = (int)$ids[0];
+        }
+        $company = new Company();
+        foreach ($ids as $branchId) {
+            if (!$company->getBranchByIdForCompany($branchId, $companyId, true)) {
+                return false;
+            }
+        }
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $this->db->query('DELETE FROM employee_branch_assignments WHERE user_id = ?');
+            $this->db->execute([(int)$userId]);
+            if (!empty($ids)) {
+                $this->db->query('INSERT INTO employee_branch_assignments (user_id, branch_id, is_primary) VALUES (?, ?, ?)');
+                foreach ($ids as $branchId) {
+                    if (!$this->db->execute([(int)$userId, (int)$branchId, $branchId === $primaryBranchId ? 1 : 0])) {
+                        throw new RuntimeException('No se pudo guardar la sucursal.');
+                    }
+                }
+            }
+            $this->db->query('UPDATE users SET branch_id = ? WHERE id = ?');
+            if (!$this->db->execute([$primaryBranchId > 0 ? $primaryBranchId : null, (int)$userId])) {
+                throw new RuntimeException('No se pudo guardar la sucursal principal.');
+            }
+            if ($ownTx) $this->db->commit();
+            return true;
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            return false;
+        }
+    }
+
     /** Búsqueda por nombre (todas las empresas) para mapeo de relojes. */
     public function searchUsersByName($query, $limit = 20) {
         $query = trim((string)$query);
@@ -403,16 +638,27 @@ class User {
         return $this->db->resultSet();
     }
 
-    public function getUsersByCompany($companyId) {
+    public function getUsersByCompany($companyId, $branchId = null) {
+        $branchSelect = $this->isBranchAssignmentReady() ? ', u.branch_id, b.name AS branch_name, b.locality AS branch_locality' : '';
+        $branchJoin = $this->isBranchAssignmentReady() ? ' LEFT JOIN company_branches b ON b.id = u.branch_id' : '';
+        $branchWhere = '';
+        if ($this->isMultipleBranchAssignmentsReady() && (int)$branchId > 0) {
+            $branchWhere = ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)';
+        } elseif ($this->isBranchAssignmentReady() && (int)$branchId > 0) {
+            $branchWhere = ' AND u.branch_id = :branch_id';
+        }
         $this->db->query('
             SELECT u.id, u.username, u.full_name, u.role, u.is_active, u.weekly_hour_limit, u.profile_picture, u.company_id,
-                   c.name AS company_name
+                   c.name AS company_name' . $branchSelect . '
             FROM users u
-            LEFT JOIN companies c ON c.id = u.company_id
-            WHERE u.company_id = :company_id
+            LEFT JOIN companies c ON c.id = u.company_id' . $branchJoin . '
+            WHERE u.company_id = :company_id' . $branchWhere . '
             ORDER BY u.full_name ASC
         ');
         $this->db->bind(':company_id', $companyId);
+        if ((($this->isMultipleBranchAssignmentsReady() || $this->isBranchAssignmentReady()) && (int)$branchId > 0)) {
+            $this->db->bind(':branch_id', (int)$branchId);
+        }
         return $this->db->resultSet();
     }
 
@@ -443,6 +689,7 @@ class User {
     public function getActiveEmployeesForNotifications() {
         $areaJoin = '';
         $areaCol = '';
+        $groupCol = $this->isOrganizationGroupReady() ? ', u.employee_group' : ", 'paviotti' AS employee_group";
         try {
             $this->db->query("SHOW COLUMNS FROM `users` LIKE 'area_id'");
             if ($this->db->single()) {
@@ -453,7 +700,7 @@ class User {
             // sin area_id
         }
         $this->db->query("
-            SELECT u.id, u.full_name, u.company_id, c.name AS company_name{$areaCol}
+            SELECT u.id, u.full_name, u.company_id{$groupCol}, c.name AS company_name{$areaCol}
             FROM users u
             LEFT JOIN companies c ON c.id = u.company_id
             {$areaJoin}
@@ -467,6 +714,7 @@ class User {
     public function getUsersForNotificationPicker() {
         $areaJoin = '';
         $areaCol = '';
+        $groupCol = $this->isOrganizationGroupReady() ? ', u.employee_group' : ", 'paviotti' AS employee_group";
         try {
             $this->db->query("SHOW COLUMNS FROM `users` LIKE 'area_id'");
             if ($this->db->single()) {
@@ -476,7 +724,7 @@ class User {
         } catch (Throwable $e) {
         }
         $this->db->query("
-            SELECT u.id, u.full_name, u.role, u.company_id, c.name AS company_name{$areaCol}
+            SELECT u.id, u.full_name, u.role, u.company_id{$groupCol}, c.name AS company_name{$areaCol}
             FROM users u
             LEFT JOIN companies c ON c.id = u.company_id
             {$areaJoin}
@@ -504,19 +752,30 @@ class User {
         return $this->db->resultSet();
     }
 
-    public function getAllUsersWithCompany($companyFilterId = null) {
+    public function getAllUsersWithCompany($companyFilterId = null, $branchId = 0) {
         $sql = '
             SELECT u.*, c.name AS company_name
             FROM users u
             LEFT JOIN companies c ON c.id = u.company_id
         ';
+        $branchFilter = (int)$branchId > 0 && (int)$companyFilterId > 0;
         if ($companyFilterId) {
             $sql .= ' WHERE u.company_id = :company_id';
+            if ($branchFilter) {
+                if ($this->isMultipleBranchAssignmentsReady()) {
+                    $sql .= ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)';
+                } elseif ($this->isBranchAssignmentReady()) {
+                    $sql .= ' AND u.branch_id = :branch_id';
+                }
+            }
         }
         $sql .= ' ORDER BY c.name ASC, u.full_name ASC';
         $this->db->query($sql);
         if ($companyFilterId) {
             $this->db->bind(':company_id', $companyFilterId);
+            if ($branchFilter && ($this->isMultipleBranchAssignmentsReady() || $this->isBranchAssignmentReady())) {
+                $this->db->bind(':branch_id', (int)$branchId);
+            }
         }
         return $this->db->resultSet();
     }
@@ -556,7 +815,28 @@ class User {
         ];
     }
 
-     public function findUserByClockId($clockId){
+    public function clockDeviceMappingsReady() {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try {
+            $this->db->query("SHOW TABLES LIKE 'user_clock_device_mappings'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) { $ready = false; }
+        return $ready;
+    }
+
+    /** Busca por dispositivo + legajo. El legado se conserva como compatibilidad temporal. */
+     public function findUserByClockId($clockId, $deviceName = null){
+        if ($this->clockDeviceMappingsReady() && trim((string)$deviceName) !== '') {
+            $this->db->query('SELECT u.* FROM users u
+                JOIN user_clock_device_mappings m ON u.id = m.user_id
+                JOIN clock_devices d ON d.id = m.clock_device_id
+                WHERE m.employee_id = :clock_id AND d.external_name = :device_name LIMIT 1');
+            $this->db->bind(':clock_id', (string)$clockId);
+            $this->db->bind(':device_name', trim((string)$deviceName));
+            $row = $this->db->single();
+            if ($row) return $row;
+        }
         $this->db->query('SELECT u.* FROM users u JOIN user_clock_mappings m ON u.id = m.user_id WHERE m.user_clock_id = :clock_id');
         $this->db->bind(':clock_id', $clockId);
         return $this->db->single();
@@ -595,6 +875,16 @@ class User {
      * Si ese clock_id ya estaba mapeado a otro usuario, lo desvincula primero.
      */
     public function upsertClockMapping($userId, $clockName, $clockId) {
+        if ($this->clockDeviceMappingsReady() && trim((string)$clockName) !== '' && strpos((string)$clockName, ',') === false) {
+            $device = new ClockDevice();
+            $deviceId = $device->getOrCreate($clockName);
+            if ($deviceId) {
+                $this->db->query('DELETE FROM user_clock_device_mappings WHERE clock_device_id = ? AND employee_id = ?');
+                $this->db->execute([(int)$deviceId, (string)$clockId]);
+                $this->db->query('INSERT INTO user_clock_device_mappings (user_id, clock_device_id, employee_id) VALUES (?, ?, ?)');
+                return $this->db->execute([(int)$userId, (int)$deviceId, (string)$clockId]);
+            }
+        }
         // Eliminar cualquier mapeo previo de este clock_id (sea cual sea el usuario)
         $this->db->query("DELETE FROM user_clock_mappings WHERE user_clock_id = :clock_id");
         $this->db->bind(':clock_id', $clockId);
@@ -611,14 +901,23 @@ class User {
     /**
      * Elimina el mapeo de un clock_id (desasociar empleado de reloj).
      */
-    public function getUserIdByClockEmployeeId($clockId) {
+    public function getUserIdByClockEmployeeId($clockId, $deviceName = null) {
+        if ($this->clockDeviceMappingsReady() && trim((string)$deviceName) !== '') {
+            $this->db->query('SELECT m.user_id FROM user_clock_device_mappings m JOIN clock_devices d ON d.id = m.clock_device_id WHERE m.employee_id = ? AND d.external_name = ? LIMIT 1');
+            $row = $this->db->single([(string)$clockId, trim((string)$deviceName)]);
+            return $row ? (int)$row->user_id : 0;
+        }
         $this->db->query('SELECT user_id FROM user_clock_mappings WHERE user_clock_id = :clock_id LIMIT 1');
         $this->db->bind(':clock_id', (string)$clockId);
         $row = $this->db->single();
         return $row ? (int)$row->user_id : 0;
     }
 
-    public function deleteClockMapping($clockId) {
+    public function deleteClockMapping($clockId, $deviceName = null) {
+        if ($this->clockDeviceMappingsReady() && trim((string)$deviceName) !== '') {
+            $this->db->query('DELETE m FROM user_clock_device_mappings m JOIN clock_devices d ON d.id = m.clock_device_id WHERE m.employee_id = ? AND d.external_name = ?');
+            return $this->db->execute([(string)$clockId, trim((string)$deviceName)]);
+        }
         $this->db->query("DELETE FROM user_clock_mappings WHERE user_clock_id = :clock_id");
         $this->db->bind(':clock_id', $clockId);
         return $this->db->execute();

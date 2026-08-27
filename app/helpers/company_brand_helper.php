@@ -106,6 +106,43 @@ function company_brand_logo_column_ready() {
     return $ready;
 }
 
+function company_brand_color($companyId = null) {
+    static $colors = [];
+    $id = company_brand_resolve_company_id($companyId);
+    if ($id <= 0) return '#e91e8c';
+    if (!array_key_exists($id, $colors)) {
+        $colors[$id] = '#e91e8c';
+        try {
+            $db = new Database();
+            $db->query("SHOW COLUMNS FROM `companies` LIKE 'brand_color'");
+            if ($db->single()) {
+                $db->query('SELECT brand_color FROM companies WHERE id = ?');
+                $row = $db->single([$id]);
+                if ($row && preg_match('/^#[0-9a-f]{6}$/i', (string)$row->brand_color)) $colors[$id] = strtoupper($row->brand_color);
+            }
+        } catch (Throwable $e) { /* Mantiene el color institucional por defecto. */ }
+    }
+    return $colors[$id];
+}
+
+function company_brand_color_variant($hex, $amount) {
+    $hex = ltrim((string)$hex, '#');
+    if (!preg_match('/^[0-9a-f]{6}$/i', $hex)) return '#e91e8c';
+    $amount = max(-255, min(255, (int)$amount));
+    $parts = str_split($hex, 2);
+    $out = '#';
+    foreach ($parts as $part) $out .= str_pad(dechex(max(0, min(255, hexdec($part) + $amount))), 2, '0', STR_PAD_LEFT);
+    return strtoupper($out);
+}
+
+function company_brand_css_variables($companyId = null) {
+    $primary = company_brand_color($companyId);
+    return '--clr-primary:' . $primary . ';--clr-primary-d:' . company_brand_color_variant($primary, -38)
+        . ';--clr-primary-l:' . company_brand_color_variant($primary, 170)
+        . ';--clr-primary-xl:' . company_brand_color_variant($primary, 220)
+        . ';--clr-secondary:' . company_brand_color_variant($primary, -12) . ';';
+}
+
 /** Clase en <body> para estilos por empresa (ej. portal Casa Paviotti). */
 function company_brand_body_class() {
     if (!isLoggedIn()) {

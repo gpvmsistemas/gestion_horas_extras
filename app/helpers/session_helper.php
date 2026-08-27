@@ -43,14 +43,23 @@ function hasAnyRole(...$roles) {
 }
 
 function isAdmin() {
+    if (function_exists('access_control_ready') && access_control_ready()) {
+        return access_current_role() === 'administrador';
+    }
     return hasRole('admin');
 }
 
 function isSupervisor() {
+    if (function_exists('access_control_ready') && access_control_ready()) {
+        return access_current_role() === 'encargado';
+    }
     return hasRole('supervisor');
 }
 
 function isStaffAdmin() {
+    if (function_exists('access_control_ready') && access_control_ready()) {
+        return access_is_staff();
+    }
     return hasAnyRole('admin', 'supervisor');
 }
 

@@ -91,7 +91,7 @@
                 <strong class="ms-2"><?php echo htmlspecialchars($inc->title); ?></strong>
                 <?php endif; ?>
             </div>
-            <form method="post"
+            <?php if (!in_array($inc->workflow_status ?? 'draft', ['notified','received','refused'], true)): ?><form method="post"
                   action="<?php echo URLROOT; ?>/admin/deleteEmployeeIncident/<?php echo (int)$data['user']->id; ?>/<?php echo (int)$inc->id; ?>"
                   class="d-inline"
                   onsubmit="return confirm('¿Eliminar esta incidencia y su adjunto?');">
@@ -99,10 +99,11 @@
                 <button type="submit" class="btn btn-outline-danger btn-sm" title="Eliminar">
                     <i class="fas fa-trash-alt"></i>
                 </button>
-            </form>
+            </form><?php endif; ?>
         </div>
         <p class="mb-2 small"><?php echo nl2br(htmlspecialchars($inc->description)); ?></p>
         <div class="incident-meta d-flex flex-wrap gap-3 align-items-center">
+            <span class="badge bg-secondary"><?php echo htmlspecialchars($inc->workflow_status ?? 'draft'); ?></span>
             <span><i class="fas fa-calendar me-1"></i><?php echo date('d/m/Y', strtotime($inc->incident_date)); ?></span>
             <span><i class="fas fa-user-shield me-1"></i><?php echo htmlspecialchars($inc->admin_name); ?></span>
             <span><i class="fas fa-clock me-1"></i>Cargado <?php echo date('d/m/Y H:i', strtotime($inc->created_at)); ?></span>
@@ -119,6 +120,8 @@
             </a>
             <?php endif; ?>
         </div>
+        <?php if (($inc->workflow_status ?? 'draft') === 'draft' && access_can('discipline.review')): ?><form class="mt-2" method="post" action="<?php echo URLROOT; ?>/discipline/review/<?php echo (int)$inc->id; ?>"><?php echo csrf_field(); ?><button class="btn btn-sm btn-outline-primary">Revisar</button></form><?php elseif (($inc->workflow_status ?? '') === 'reviewed' && access_can('discipline.review')): ?><form class="mt-2" method="post" action="<?php echo URLROOT; ?>/discipline/notify/<?php echo (int)$inc->id; ?>"><?php echo csrf_field(); ?><button class="btn btn-sm btn-primary">Notificar al empleado</button></form><?php endif; ?>
+        <?php if (($inc->workflow_status ?? 'draft') !== 'void' && access_can('discipline.review')): ?><form class="d-flex gap-2 mt-2" method="post" action="<?php echo URLROOT; ?>/discipline/void/<?php echo (int)$inc->id; ?>"><?php echo csrf_field(); ?><input class="form-control form-control-sm" name="reason" placeholder="Motivo de anulación" required><button class="btn btn-sm btn-outline-danger">Anular</button></form><?php endif; ?>
     </div>
     <?php endforeach; ?>
     <?php endif; ?>

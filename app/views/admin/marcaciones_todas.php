@@ -15,6 +15,7 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
         'person_q'    => $filters['person_q'],
         'mapped'      => $filters['mapped'],
         'direction'   => $filters['direction'],
+        'branch_id'   => $filters['branch_id'] ?? 0,
         'view'        => $viewMode,
     ], $overrides);
     return http_build_query(array_filter($q, function ($v) {
@@ -27,8 +28,8 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
     <div class="admin-page-brand">
         <div class="admin-page-icon"><i class="fas fa-fingerprint"></i></div>
         <div class="admin-page-meta">
-            <h2 class="page-title mb-0">Todas las marcaciones</h2>
-            <p class="page-subtitle mb-0">Por persona y día: mismas horas que el perfil (pares o 1ª entrada + última salida)</p>
+            <h1 class="page-title mb-0">Historial de fichadas</h1>
+            <p class="page-subtitle mb-0">Auditoría de reloj, persona recibida y vínculo con el sistema</p>
         </div>
     </div>
     <div class="admin-page-actions">
@@ -50,28 +51,28 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#eef2ff;color:#4338ca;"><i class="fas fa-user-friends"></i></div>
+        <div class="admin-kpi-icon marc-kpi-persons"><i class="fas fa-user-friends"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)($data['stats']['persons'] ?? 0); ?></div>
             <div class="admin-kpi-label">Personas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#d1fae5;color:#065f46;"><i class="fas fa-sign-in-alt"></i></div>
+        <div class="admin-kpi-icon marc-kpi-in"><i class="fas fa-sign-in-alt"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['entrada']; ?></div>
             <div class="admin-kpi-label">Entradas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#fce4ec;color:#c2185b;"><i class="fas fa-sign-out-alt"></i></div>
+        <div class="admin-kpi-icon marc-kpi-out"><i class="fas fa-sign-out-alt"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['salida']; ?></div>
             <div class="admin-kpi-label">Salidas</div>
         </div>
     </div>
     <div class="admin-kpi-card">
-        <div class="admin-kpi-icon" style="background:#fff3cd;color:#8a5600;"><i class="fas fa-user-slash"></i></div>
+        <div class="admin-kpi-icon marc-kpi-unmapped"><i class="fas fa-user-slash"></i></div>
         <div>
             <div class="admin-kpi-value"><?php echo (int)$data['stats']['unmapped']; ?></div>
             <div class="admin-kpi-label">Sin mapear</div>
@@ -79,7 +80,8 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
     </div>
 </div>
 
-<div class="admin-toolbar mb-3">
+<div class="admin-toolbar marc-filter-panel mb-3">
+    <div class="marc-filter-heading"><div><span class="admin-section-eyebrow">Búsqueda avanzada</span><strong>Filtros de auditoría</strong></div><i class="fas fa-sliders-h"></i></div>
     <form method="get" action="<?php echo URLROOT; ?>/admin/marcacionesTodas" class="w-100">
         <input type="hidden" name="view" value="<?php echo htmlspecialchars($viewMode); ?>">
         <div class="row g-2 align-items-end">
@@ -94,6 +96,17 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
                 <input type="date" name="start_date" class="form-control form-control-sm"
                        value="<?php echo htmlspecialchars($filters['start_date']); ?>">
             </div>
+            <?php if (!empty($data['branches'])): ?>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="admin-toolbar-label d-block mb-1">Sucursal</label>
+                <select name="branch_id" class="form-select form-select-sm">
+                    <option value="0">Todas</option>
+                    <?php foreach ($data['branches'] as $branch): ?>
+                    <option value="<?php echo (int)$branch->id; ?>" <?php echo (int)($filters['branch_id'] ?? 0) === (int)$branch->id ? 'selected' : ''; ?>><?php echo htmlspecialchars($branch->name); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
             <div class="col-6 col-md-3 col-lg-2">
                 <label class="admin-toolbar-label d-block mb-1">Hasta</label>
                 <input type="date" name="end_date" class="form-control form-control-sm"
@@ -181,6 +194,7 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
                         <th>Salidas</th>
                         <th>Jornada</th>
                         <th>Reloj</th>
+                        <th>Empresa / sucursal</th>
                         <th>Sistema</th>
                         <th style="width:70px" class="text-center">Marcas</th>
                     </tr>
@@ -253,13 +267,14 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
                         <?php endif; ?>
                     </td>
                     <td onclick="event.stopPropagation();"><?php echo marcClockBadge($g['device_name'], $clockMap); ?></td>
+                    <td class="small"><?php $scope = $g['events'][0] ?? null; echo htmlspecialchars(($scope->company_name ?? 'Sin asignar') . (!empty($scope->employee_branch_name) ? ' · ' . $scope->employee_branch_name : (!empty($scope->clock_branch_names) ? ' · ' . $scope->clock_branch_names : ''))); ?></td>
                     <td onclick="event.stopPropagation();"><?php echo marcMappingBadge($g['user_id']); ?></td>
                     <td class="text-center">
                         <span class="badge bg-light text-dark border"><?php echo count($g['events']); ?></span>
                     </td>
                 </tr>
                 <tr class="marc-detail-row">
-                    <td colspan="9" class="p-0">
+                    <td colspan="10" class="p-0">
                         <div class="collapse" id="<?php echo $rowId; ?>">
                             <div class="marc-detail-inner">
                                 <table class="table table-sm table-borderless">
@@ -303,6 +318,7 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
                         <th>Persona</th>
                         <th>Sistema</th>
                         <th>Reloj</th>
+                        <th>Empresa / sucursal</th>
                         <th>Fecha</th>
                         <th>Hora</th>
                         <th>Tipo</th>
@@ -324,6 +340,7 @@ function marcacionesQueryString($filters, $viewMode, $overrides = []) {
                     </td>
                     <td><?php echo marcMappingBadge($m->user_id); ?></td>
                     <td><?php echo marcClockBadge($m->device_name, $clockMap); ?></td>
+                    <td class="small"><div><?php echo htmlspecialchars($m->company_name ?? 'Sin asignar'); ?></div><div class="text-muted"><?php echo htmlspecialchars(($m->employee_branch_name ?? '') ?: ($m->clock_branch_names ?? '')); ?></div></td>
                     <td><?php echo date('d/m/Y', strtotime($m->event_time)); ?></td>
                     <td><strong><?php echo date('H:i:s', strtotime($m->event_time)); ?></strong></td>
                     <td><?php echo marcDirectionBadge($m->direction ?? null, $m->direction_label ?? null); ?></td>

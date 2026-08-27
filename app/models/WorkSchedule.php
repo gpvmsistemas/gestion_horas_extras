@@ -6,14 +6,21 @@
 class WorkSchedule {
     private $db;
 
-    public function __construct(){
-        $this->db = new Database;
+    public function __construct($db = null){
+        $this->db = $db instanceof Database ? $db : new Database;
     }
 
     /**
      * Obtiene todas las entradas de horario para un rango de fechas.
      */
-    public function getScheduleEntriesForPeriod($companyId, $startDate, $endDate) {
+    public function getScheduleEntriesForPeriod($companyId, $startDate, $endDate, $branchId = null) {
+        $branchReady = $this->isBranchScheduleReady();
+        $multipleBranches = (new User())->isMultipleBranchAssignmentsReady();
+        $branchWhere = ($branchReady && (int)$branchId > 0)
+            ? ($multipleBranches
+                ? ' AND (es.branch_id = :branch_id OR (es.branch_id IS NULL AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :legacy_branch_id)))'
+                : ' AND COALESCE(es.branch_id, u.branch_id) = :branch_id')
+            : '';
         $sql = "SELECT 
                     es.*, 
                     s.shift_name, s.color 
@@ -22,12 +29,19 @@ class WorkSchedule {
                 JOIN users u ON es.user_id = u.id
                 WHERE u.company_id = :company_id 
                 AND es.schedule_date BETWEEN :start_date AND :end_date
+                {$branchWhere}
                 ORDER BY es.start_time ASC";
         
         $this->db->query($sql);
         $this->db->bind(':company_id', $companyId);
         $this->db->bind(':start_date', $startDate);
         $this->db->bind(':end_date', $endDate);
+        if ($branchReady && (int)$branchId > 0) {
+            $this->db->bind(':branch_id', (int)$branchId);
+            if ($multipleBranches) {
+                $this->db->bind(':legacy_branch_id', (int)$branchId);
+            }
+        }
         
         return $this->db->resultSet();
     }
@@ -35,17 +49,25 @@ class WorkSchedule {
     /**
      * Borra todas las entradas de un día para un usuario y luego inserta las nuevas.
      */
-    public function saveDaySchedule($userId, $date, $entries) {
-        $this->db->beginTransaction();
+    public function saveDaySchedule($userId, $date, $entries, $branchId = null) {
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) {
+            $this->db->beginTransaction();
+        }
         try {
-            $this->db->query('DELETE FROM employee_schedules WHERE user_id = :user_id AND schedule_date = :schedule_date');
+            $hasBranch = $this->isBranchScheduleReady() && (int)$branchId > 0;
+            $this->db->query($hasBranch
+                ? 'DELETE FROM employee_schedules WHERE user_id = :user_id AND schedule_date = :schedule_date AND branch_id = :branch_id'
+                : 'DELETE FROM employee_schedules WHERE user_id = :user_id AND schedule_date = :schedule_date');
             $this->db->bind(':user_id', $userId);
             $this->db->bind(':schedule_date', $date);
+            if ($hasBranch) $this->db->bind(':branch_id', (int)$branchId);
             $this->db->execute();
 
             if (!empty($entries)) {
-                $this->db->query('INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes) 
-                                 VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes)');
+                $this->db->query($hasBranch
+                    ? 'INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_id) VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes, :branch_id)'
+                    : 'INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes) VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes)');
                 
                 foreach ($entries as $entry) {
                     $this->db->bind(':user_id', $userId);
@@ -55,15 +77,36 @@ class WorkSchedule {
                     $this->db->bind(':end_time', !empty($entry['end_time']) ? $entry['end_time'] : NULL);
                     $this->db->bind(':type', $entry['type']);
                     $this->db->bind(':notes', $entry['notes']);
+                    if ($hasBranch) {
+                        $this->db->bind(':branch_id', (int)$branchId > 0 ? (int)$branchId : null);
+                    }
                     $this->db->execute();
                 }
             }
-            $this->db->commit();
+            if ($ownTx) {
+                $this->db->commit();
+            }
             return true;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($ownTx) {
+                $this->db->rollBack();
+            }
             return false;
         }
+    }
+
+    public function isBranchScheduleReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $this->db->query("SHOW COLUMNS FROM employee_schedules LIKE 'branch_id'");
+            $ready = (bool)$this->db->single();
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+        return $ready;
     }
 
     /**
@@ -211,14 +254,17 @@ class WorkSchedule {
     /**
      * Todas las entradas del planificador para un día (incluye vacaciones, licencias, etc.).
      */
-    public function getPlannerEntriesForUserOnDate($userId, $date) {
+    public function getPlannerEntriesForUserOnDate($userId, $date, $branchId = null) {
+        $branchWhere = ($this->isBranchScheduleReady() && (int)$branchId > 0) ? ' AND es.branch_id = :branch_id' : '';
         $this->db->query($this->scheduleSelectWithResolvedTimes() . "
             WHERE es.user_id = :user_id
               AND es.schedule_date = :schedule_date
+              {$branchWhere}
             ORDER BY COALESCE(es.start_time, str.first_start) ASC, es.id ASC
         ");
         $this->db->bind(':user_id', (int)$userId);
         $this->db->bind(':schedule_date', $date);
+        if ($branchWhere !== '') $this->db->bind(':branch_id', (int)$branchId);
         return $this->db->resultSet();
     }
 
@@ -341,10 +387,12 @@ class WorkSchedule {
         return $out;
     }
 
-    public function dayHasScheduleEntries($userId, $date) {
-        $this->db->query('SELECT 1 FROM employee_schedules WHERE user_id = :uid AND schedule_date = :d LIMIT 1');
+    public function dayHasScheduleEntries($userId, $date, $branchId = null) {
+        $branchWhere = ($this->isBranchScheduleReady() && (int)$branchId > 0) ? ' AND branch_id = :branch_id' : '';
+        $this->db->query('SELECT 1 FROM employee_schedules WHERE user_id = :uid AND schedule_date = :d' . $branchWhere . ' LIMIT 1');
         $this->db->bind(':uid', (int)$userId);
         $this->db->bind(':d', $date);
+        if ($branchWhere !== '') $this->db->bind(':branch_id', (int)$branchId);
         $this->db->single();
         return $this->db->rowCount() > 0;
     }
@@ -353,7 +401,7 @@ class WorkSchedule {
      * Copia el patrón de la semana de referencia (Lun–Dom) a cada fecha del rango [from, to].
      * @return array{ok:bool,message:string,schedules:array,days_updated:int}
      */
-    public function buildWeekPatternApplyPayload($userId, $refWeekStart, $from, $to, $overwrite = true) {
+    public function buildWeekPatternApplyPayload($userId, $refWeekStart, $from, $to, $overwrite = true, $branchId = 0) {
         $userId = (int)$userId;
         if ($userId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $refWeekStart)
             || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
@@ -373,7 +421,7 @@ class WorkSchedule {
         for ($i = 0; $i < 7; $i++) {
             $d = date('Y-m-d', strtotime($refWeekStart . " +{$i} days"));
             $dow = (int)date('N', strtotime($d));
-            $rows = $this->getPlannerEntriesForUserOnDate($userId, $d);
+            $rows = $this->getPlannerEntriesForUserOnDate($userId, $d, $branchId);
             $byDow[$dow] = $this->entriesToPlannerArrays($rows);
         }
 
@@ -383,7 +431,7 @@ class WorkSchedule {
         while ($cursor <= $to) {
             $dow = (int)date('N', strtotime($cursor));
             $pattern = $byDow[$dow] ?? [];
-            if (!$overwrite && $this->dayHasScheduleEntries($userId, $cursor)) {
+            if (!$overwrite && $this->dayHasScheduleEntries($userId, $cursor, $branchId)) {
                 $cursor = date('Y-m-d', strtotime($cursor . ' +1 day'));
                 continue;
             }
@@ -402,6 +450,37 @@ class WorkSchedule {
             'schedules' => [$userId => $userSchedules],
             'days_updated' => $daysUpdated,
         ];
+    }
+
+    /** Copia una jornada base a todos los lunes a viernes de un rango. */
+    public function buildFixedWeekdayApplyPayload($userId, $sourceDate, $from, $to, $overwrite = true, $branchId = 0) {
+        $userId = (int)$userId;
+        foreach ([$sourceDate, $from, $to] as $date) {
+            if ($userId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date)) {
+                return ['ok'=>false, 'message'=>'Empleado o fechas inválidas.', 'schedules'=>[], 'days_updated'=>0];
+            }
+        }
+        if ($from > $to) { [$from, $to] = [$to, $from]; }
+        if ((int)((strtotime($to) - strtotime($from)) / 86400) + 1 > 93) {
+            return ['ok'=>false, 'message'=>'El rango no puede superar 93 días.', 'schedules'=>[], 'days_updated'=>0];
+        }
+        $sourceEntries = $this->getPlannerEntriesForUserOnDate($userId, $sourceDate, $branchId);
+        $pattern = $this->entriesToPlannerArrays($sourceEntries);
+        if (empty($pattern)) {
+            return ['ok'=>false, 'message'=>'La jornada base no tiene horarios para copiar.', 'schedules'=>[], 'days_updated'=>0];
+        }
+        $userSchedules = [];
+        $daysUpdated = 0;
+        for ($cursor = $from; $cursor <= $to; $cursor = date('Y-m-d', strtotime($cursor . ' +1 day'))) {
+            if ((int)date('N', strtotime($cursor)) > 5) continue;
+            if (!$overwrite && $this->dayHasScheduleEntries($userId, $cursor, $branchId)) continue;
+            $userSchedules[$cursor] = $pattern;
+            $daysUpdated++;
+        }
+        if ($daysUpdated === 0) {
+            return ['ok'=>false, 'message'=>'No hay días hábiles para actualizar en el rango.', 'schedules'=>[], 'days_updated'=>0];
+        }
+        return ['ok'=>true, 'message'=>'', 'schedules'=>[$userId => $userSchedules], 'days_updated'=>$daysUpdated];
     }
 
 }

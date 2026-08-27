@@ -50,6 +50,10 @@ function notification_targets_from_post(array $post) {
             $rows[] = ['target_type' => 'area', 'target_id' => $aid];
         }
     }
+    foreach (array_unique((array)($post['employee_groups'] ?? [])) as $group) {
+        $group = User::normalizeOrganizationGroup($group);
+        $rows[] = ['target_type' => 'employee_group', 'target_id' => $group === 'moderna' ? 2 : 1];
+    }
     foreach ($post['user_ids'] ?? [] as $uid) {
         $uid = (int)$uid;
         if ($uid > 0) {
@@ -115,6 +119,7 @@ function notification_user_to_target_json($u, $withRole = false) {
         'company_id' => !empty($u->company_id) ? (int)$u->company_id : null,
         'company_name' => $u->company_name ?? 'Sin empresa',
         'area_id' => isset($u->area_id) && $u->area_id !== null && $u->area_id !== '' ? (int)$u->area_id : null,
+        'employee_group' => User::normalizeOrganizationGroup($u->employee_group ?? 'paviotti'),
         'area_name' => !empty($u->area_name) ? $u->area_name : 'Sin área',
     ];
     if ($withRole) {
@@ -171,6 +176,11 @@ function pay_stub_signature_stream_url($stubId) {
 
 function announcement_image_stream_url($announcementId, $forAdmin = false) {
     $prefix = $forAdmin ? '/notificationsAdmin/streamAnnouncementImage/' : '/employee/streamAnnouncementImage/';
+    return URLROOT . $prefix . (int)$announcementId;
+}
+
+function announcement_video_stream_url($announcementId, $forAdmin = false) {
+    $prefix = $forAdmin ? '/notificationsAdmin/streamAnnouncementVideo/' : '/employee/streamAnnouncementVideo/';
     return URLROOT . $prefix . (int)$announcementId;
 }
 

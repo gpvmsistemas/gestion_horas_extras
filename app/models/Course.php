@@ -39,11 +39,11 @@ class Course {
         $this->db->query('INSERT INTO courses (
             company_id, area_id, title, slug, description, thumbnail_url,
             stars_on_complete, first_finisher_bonus, passing_score, estimated_minutes, require_quiz,
-            max_quiz_attempts, is_published, sort_order, created_by
+            max_quiz_attempts, is_published, sort_order, duration_hours, certificate_valid_days, created_by
         ) VALUES (
             :company_id, :area_id, :title, :slug, :description, :thumbnail_url,
             :stars_on_complete, :first_finisher_bonus, :passing_score, :estimated_minutes, :require_quiz,
-            :max_quiz_attempts, :is_published, :sort_order, :created_by
+            :max_quiz_attempts, :is_published, :sort_order, :duration_hours, :certificate_valid_days, :created_by
         )');
         $this->bindCourseFields($data, $slug);
         if ($this->db->execute()) {
@@ -60,7 +60,8 @@ class Course {
             first_finisher_bonus = :first_finisher_bonus,
             passing_score = :passing_score, estimated_minutes = :estimated_minutes,
             require_quiz = :require_quiz, max_quiz_attempts = :max_quiz_attempts,
-            is_published = :is_published, sort_order = :sort_order
+            is_published = :is_published, sort_order = :sort_order,
+            duration_hours = :duration_hours, certificate_valid_days = :certificate_valid_days
             WHERE id = :course_id AND company_id = :p_company_id');
         $this->bindCourseFields($data, $slug);
         $this->db->bind(':course_id', (int)$id);
@@ -83,6 +84,8 @@ class Course {
         $this->db->bind(':max_quiz_attempts', (int)($data['max_quiz_attempts'] ?? 3));
         $this->db->bind(':is_published', !empty($data['is_published']) ? 1 : 0);
         $this->db->bind(':sort_order', (int)($data['sort_order'] ?? 0));
+        $this->db->bind(':duration_hours', ($data['duration_hours'] ?? '') !== '' ? (float)$data['duration_hours'] : null);
+        $this->db->bind(':certificate_valid_days', ($data['certificate_valid_days'] ?? '') !== '' ? (int)$data['certificate_valid_days'] : null);
         $this->db->bind(':created_by', !empty($data['created_by']) ? (int)$data['created_by'] : null);
     }
 

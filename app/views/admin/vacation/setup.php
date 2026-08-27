@@ -68,8 +68,8 @@ $user = $data['user'];
                 <div class="col-md-4">
                     <label class="form-label small">Calcular para período</label>
                     <input type="text" id="vacCalcPeriod" class="form-control form-control-sm"
-                           value="<?php echo htmlspecialchars($data['suggested_period']); ?>" placeholder="2025-2026">
-                    <small class="text-muted">Antigüedad se mide al 1º día de ese período (ej. 1/oct).</small>
+                           value="<?php echo htmlspecialchars($data['suggested_period']); ?>" placeholder="2026">
+                    <small class="text-muted">Período anual; la antigüedad se calcula al 31 de diciembre.</small>
                 </div>
                 <div class="col-md-4 d-flex align-items-end">
                     <div class="form-check">
@@ -85,9 +85,11 @@ $user = $data['user'];
     <div class="card border shadow-sm mb-3">
         <div class="card-header"><strong>Períodos (carga inicial)</strong></div>
         <div class="card-body">
-            <p class="small text-muted">Indicá cuántos días <strong>correspondían</strong> y cuántos <strong>ya se tomaron</strong> en cada período Oct–Sep.</p>
+            <p class="small text-muted">Indicá cuántos días <strong>correspondían</strong> y cuántos <strong>ya se tomaron</strong> en cada año.</p>
             <?php
-            $periodRows = $summary['periods'];
+            $periodRows = array_values(array_filter($summary['periods'], function($period) {
+                return !isset($period->balance_type) || $period->balance_type === 'annual';
+            }));
             if (empty($periodRows)) {
                 $periodRows = [(object)[
                     'period_label' => $data['suggested_period'],
@@ -103,7 +105,7 @@ $user = $data['user'];
                 <div class="col-md-3">
                     <label class="form-label small">Período</label>
                     <input type="text" name="periods[<?php echo $i; ?>][period_label]" class="form-control form-control-sm vac-period-label"
-                           value="<?php echo htmlspecialchars($p->period_label); ?>" placeholder="2024-2025" <?php echo $i === 0 ? 'id="vacFirstPeriodLabel"' : ''; ?>>
+                           value="<?php echo htmlspecialchars($p->period_label); ?>" placeholder="2025" <?php echo $i === 0 ? 'id="vacFirstPeriodLabel"' : ''; ?>>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small">Corresponden</label>
@@ -122,7 +124,7 @@ $user = $data['user'];
             <?php $i++; endforeach; ?>
             <div class="row g-2 mb-0">
                 <div class="col-md-3">
-                    <input type="text" name="periods[<?php echo $i; ?>][period_label]" class="form-control form-control-sm" placeholder="Nuevo período ej. 2023-2024">
+                    <input type="text" name="periods[<?php echo $i; ?>][period_label]" class="form-control form-control-sm" placeholder="Nuevo período ej. 2024">
                 </div>
                 <div class="col-md-3">
                     <input type="number" step="0.5" min="0" name="periods[<?php echo $i; ?>][days_entitled]" class="form-control form-control-sm" placeholder="Corresponden">
@@ -136,6 +138,46 @@ $user = $data['user'];
 
     <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>Guardar</button>
 </form>
+
+<div class="row g-3 mt-1">
+    <div class="col-lg-4">
+        <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/addHistoricalBalance/<?php echo (int)$user->id; ?>" class="card border shadow-sm h-100">
+            <?php echo csrf_field(); ?>
+            <div class="card-header"><strong>Reconocer saldo histórico</strong></div>
+            <div class="card-body">
+                <p class="small text-muted">Carga deuda de años anteriores en un saldo separado, sin vencimiento.</p>
+                <div class="row g-2"><div class="col-5"><label class="form-label small">Año</label><input type="number" name="year" min="1970" max="<?php echo date('Y'); ?>" value="<?php echo date('Y')-1; ?>" class="form-control form-control-sm" required></div><div class="col-7"><label class="form-label small">Días reconocidos</label><input type="number" name="days" min="0.5" step="0.5" class="form-control form-control-sm" required></div></div>
+                <label class="form-label small mt-2">Motivo / respaldo</label><textarea name="reason" rows="2" class="form-control form-control-sm" required></textarea>
+                <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Registrar saldo</button>
+            </div>
+        </form>
+    </div>
+    <div class="col-lg-4">
+        <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/addConventionalCredit/<?php echo (int)$user->id; ?>" class="card border shadow-sm h-100">
+            <?php echo csrf_field(); ?>
+            <div class="card-header"><strong>Crédito convencional</strong></div>
+            <div class="card-body">
+                <p class="small text-muted">Para créditos separados con vencimiento, como el transitorio UTEDYC.</p>
+                <div class="row g-2"><div class="col-4"><label class="form-label small">Año</label><input type="number" name="year" value="<?php echo date('Y'); ?>" class="form-control form-control-sm" required></div><div class="col-4"><label class="form-label small">Días</label><input type="number" name="days" min="0.5" step="0.5" class="form-control form-control-sm" required></div><div class="col-4"><label class="form-label small">Vence</label><input type="date" name="expires_at" class="form-control form-control-sm" required></div></div>
+                <label class="form-label small mt-2">Motivo / respaldo</label><textarea name="reason" rows="2" class="form-control form-control-sm" required></textarea>
+                <button class="btn btn-outline-warning btn-sm mt-2" type="submit">Registrar crédito</button>
+            </div>
+        </form>
+    </div>
+    <div class="col-lg-4">
+        <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/convertBalance/<?php echo (int)$user->id; ?>" class="card border shadow-sm h-100">
+            <?php echo csrf_field(); ?>
+            <div class="card-header"><strong>Conversión auditada</strong></div>
+            <div class="card-body">
+                <p class="small text-muted">Obligatoria si un saldo cambia entre días corridos y hábiles.</p>
+                <label class="form-label small">Período</label><select name="period_id" class="form-select form-select-sm" required><option value="">Seleccionar</option><?php foreach($summary['periods'] as $period): ?><option value="<?php echo (int)$period->id; ?>"><?php echo htmlspecialchars($period->period_label); ?> · <?php echo vacation_format_days(vacation_period_pending($period)); ?> días · <?php echo htmlspecialchars($period->count_mode_snapshot ?? 'calendar'); ?></option><?php endforeach; ?></select>
+                <div class="row g-2 mt-1"><div class="col-7"><label class="form-label small">Nueva unidad</label><select name="target_mode" class="form-select form-select-sm" required><?php foreach(vacation_day_count_modes() as $key=>$label): ?><option value="<?php echo $key; ?>"><?php echo htmlspecialchars($label); ?></option><?php endforeach; ?></select></div><div class="col-5"><label class="form-label small">Saldo convertido</label><input type="number" name="target_pending" min="0" step="0.5" class="form-control form-control-sm" required></div></div>
+                <label class="form-label small mt-2">Fundamento</label><textarea name="reason" rows="2" class="form-control form-control-sm" required></textarea>
+                <button class="btn btn-outline-danger btn-sm mt-2" type="submit">Guardar conversión</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

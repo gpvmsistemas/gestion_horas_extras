@@ -208,7 +208,7 @@ $userInitial = mb_strtoupper(mb_substr($primerNombre, 0, 1, 'UTF-8'), 'UTF-8');
             ?>
         </div>
         <div class="emp-shift-info">
-            <span class="emp-shift-name"><?php echo htmlspecialchars($s->shift_name ?? ucfirst($s->type)); ?></span>
+            <span class="emp-shift-name"><?php echo htmlspecialchars(employee_schedule_entry_label($s)); ?></span>
             <?php if($s->start_time && $s->end_time): ?>
             <span class="emp-shift-hours">
                 <i class="fas fa-clock me-1"></i><?php echo substr($s->start_time,0,5); ?> – <?php echo substr($s->end_time,0,5); ?>

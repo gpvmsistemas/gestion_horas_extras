@@ -183,7 +183,7 @@ class SyncModel {
                 continue;
             }
 
-            $user = $this->userModel->findUserByClockId($empId);
+            $user = $this->userModel->findUserByClockId($empId, $m['deviceName'] ?? null);
             if ($user && !empty($user->full_name)) {
                 $m['personName'] = $user->full_name;
                 continue;
@@ -265,6 +265,7 @@ class SyncModel {
     public function saveMarcacionesToCache(array $marcaciones, $syncBatchId) {
         $newCount = 0;
         $notMapped = [];
+        $deviceCatalog = new ClockDevice();
 
         foreach ($marcaciones as $m) {
             $empId    = (string)($m['employeeID'] ?? '');
@@ -272,6 +273,7 @@ class SyncModel {
             if (empty($empId) || empty($dateTime)) {
                 continue;
             }
+            $deviceCatalog->getOrCreate($m['deviceName'] ?? '');
 
             $serial = 'ext_' . (string)($m['id'] ?? uniqid());
             $personName = ClockApiClient::marcacionPersonName($m);
@@ -282,7 +284,7 @@ class SyncModel {
                 continue;
             }
 
-            $user = $this->userModel->findUserByClockId($empId);
+            $user = $this->userModel->findUserByClockId($empId, $m['deviceName'] ?? null);
             if (!$user) {
                 $name = ClockApiClient::marcacionPersonName($m);
                 $notMapped[$empId] = $name !== '' ? "{$name} (ID: {$empId})" : "Legajo {$empId}";
@@ -329,7 +331,7 @@ class SyncModel {
 
                     if (!$this->scheduleModel->doesEventExistBySerial($serialNo)) {
                         $clockId = $event['employeeNoString'];
-                        $user = $this->userModel->findUserByClockId($clockId);
+                        $user = $this->userModel->findUserByClockId($clockId, $deviceName);
                         
                         if ($user) {
                             $dateTime  = new DateTime($event['time']);
@@ -372,8 +374,9 @@ class SyncModel {
             $empId = (string)($m['employeeID'] ?? '');
             if (empty($empId)) continue;
 
-            if (!isset($employees[$empId])) {
-                $employees[$empId] = [
+            $employeeKey = $empId . '|' . (string)($m['deviceName'] ?? '');
+            if (!isset($employees[$employeeKey])) {
+                $employees[$employeeKey] = [
                     'employeeID' => $empId,
                     'personName' => ClockApiClient::marcacionPersonName($m),
                     'devices'    => [],
@@ -382,21 +385,21 @@ class SyncModel {
                 ];
             }
 
-            $employees[$empId]['count']++;
+            $employees[$employeeKey]['count']++;
 
             $dn = $m['deviceName'] ?? null;
-            if ($dn && !in_array($dn, $employees[$empId]['devices'])) {
-                $employees[$empId]['devices'][] = $dn;
+            if ($dn && !in_array($dn, $employees[$employeeKey]['devices'])) {
+                $employees[$employeeKey]['devices'][] = $dn;
             }
 
             $date = !empty($m['authDate']) ? $m['authDate'] : substr($m['authDateTime'] ?? '', 0, 10);
-            if ($date > ($employees[$empId]['lastSeen'] ?? '')) {
-                $employees[$empId]['lastSeen'] = $date;
+            if ($date > ($employees[$employeeKey]['lastSeen'] ?? '')) {
+                $employees[$employeeKey]['lastSeen'] = $date;
             }
 
             $pn = ClockApiClient::marcacionPersonName($m);
-            if ($pn !== '' && ($employees[$empId]['personName'] ?? '') === '') {
-                $employees[$empId]['personName'] = $pn;
+            if ($pn !== '' && ($employees[$employeeKey]['personName'] ?? '') === '') {
+                $employees[$employeeKey]['personName'] = $pn;
             }
         }
 
@@ -429,7 +432,7 @@ class SyncModel {
                     $emp['personName'] = $fromLegajo;
                 }
             }
-            $emp['mapped_user'] = $this->userModel->findUserByClockId($emp['employeeID']);
+            $emp['mapped_user'] = $this->userModel->findUserByClockId($emp['employeeID'], $emp['devices'][0] ?? null);
         }
         unset($emp);
 
@@ -472,7 +475,7 @@ class SyncModel {
         $notMapped = [];
         foreach ($marcaciones as $m) {
             $empId = (string)($m['employeeID'] ?? '');
-            if ($empId === '' || $this->userModel->findUserByClockId($empId)) {
+            if ($empId === '' || $this->userModel->findUserByClockId($empId, $m['deviceName'] ?? null)) {
                 continue;
             }
             $name = ClockApiClient::marcacionPersonName($m);
@@ -487,7 +490,7 @@ class SyncModel {
 
             if (empty($empId) || empty($dateTime)) continue;
 
-            $user = $this->userModel->findUserByClockId($empId);
+            $user = $this->userModel->findUserByClockId($empId, $m['deviceName'] ?? null);
             if (!$user) continue;
 
             $standardized[] = [

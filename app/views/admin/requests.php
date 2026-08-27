@@ -36,6 +36,7 @@ foreach ($pendingQueue as $request) {
         'certificate_url' => !empty($request->certificate_path)
             ? admin_request_certificate_stream_url((int)$request->id)
             : null,
+        'vacation_preview' => $request->vacation_preview ?? null,
     ];
 }
 ?>
@@ -240,6 +241,14 @@ foreach ($pendingQueue as $request) {
             <div class="mb-3">
                 <label class="form-label small fw-semibold">Motivo del empleado</label>
                 <div class="req-review-reason" id="reqReviewReason"></div>
+            </div>
+
+            <div class="alert alert-info small mb-3" id="reqVacationPreview" style="display:none"></div>
+
+            <div class="mb-3" id="reqVacationExceptionBlock" style="display:none">
+                <label for="reqVacationException" class="form-label small fw-semibold">Justificación de excepción</label>
+                <textarea name="vacation_exception_reason" id="reqVacationException" class="form-control form-control-sm" rows="2" placeholder="Obligatoria si no cumple aviso, inicio o fraccionamiento convencional"></textarea>
+                <div class="form-text">Quedan registrados administrador, fecha y motivo.</div>
             </div>
 
             <div class="mb-3" id="reqReviewCertBlock" style="display:none">

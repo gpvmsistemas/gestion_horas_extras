@@ -1,9 +1,5 @@
 <?php require APPROOT . '/views/inc/header.php'; ?>
 
-<?php
-$clockMap = $GLOBALS['CLOCK_DEVICE_MAP'] ?? [];
-$sinMapeo = array_filter($data['mapping_status'], function($e){ return !$e['has_mapping']; });
-?>
 
 <div class="d-flex align-items-center gap-3 mb-4">
     <div style="background:var(--clr-primary-l);border-radius:1rem;padding:.75rem 1rem;">
@@ -13,8 +9,8 @@ $sinMapeo = array_filter($data['mapping_status'], function($e){ return !$e['has_
         <h2 class="page-title mb-0">Sincronización de Marcaciones</h2>
         <p class="page-subtitle mb-0">API Relojes OpenAPI <?php echo defined('CLOCK_API_VERSION') ? CLOCK_API_VERSION : 'v1'; ?> · JWT</p>
     </div>
-    <a href="<?php echo URLROOT; ?>/admin/marcacionesTodas" class="btn btn-outline-primary ms-auto">
-        <i class="fas fa-list me-1"></i> Ver todas las marcaciones
+    <a href="<?php echo URLROOT; ?>/admin/controlAsistencia" class="btn btn-outline-primary ms-auto">
+        <i class="fas fa-user-clock me-1"></i> Control de asistencia
     </a>
 </div>
 
@@ -65,45 +61,6 @@ $sinMapeo = array_filter($data['mapping_status'], function($e){ return !$e['has_
         </form>
     </div>
 </div>
-
-<div class="card shadow">
-    <div class="card-header d-flex align-items-center gap-2">
-        <i class="fas fa-link" style="color:var(--clr-primary);"></i>
-        <h5 class="mb-0">Estado de mapeo de empleados</h5>
-        <?php if (count($sinMapeo)): ?>
-            <span class="badge bg-warning text-dark ms-auto"><?php echo count($sinMapeo); ?> sin mapear</span>
-        <?php endif; ?>
-    </div>
-    <div class="card-body">
-        <?php if (empty($data['mapping_status'])): ?>
-            <p class="text-muted mb-0">No hay empleados registrados.</p>
-        <?php else: ?>
-        <div class="row g-2">
-            <?php foreach ($data['mapping_status'] as $emp): ?>
-            <div class="col-6 col-md-4 col-lg-3">
-                <div class="d-flex align-items-center gap-2 p-2 rounded border small"
-                     style="background:#fff; border-color:<?php echo $emp['has_mapping'] ? 'var(--clr-primary-l)' : '#ffc107'; ?> !important;">
-                    <?php if ($emp['has_mapping']): ?>
-                        <i class="fas fa-check-circle fa-fw" style="color:#198754;"></i>
-                    <?php else: ?>
-                        <i class="fas fa-exclamation-circle fa-fw text-warning"></i>
-                    <?php endif; ?>
-                    <div class="overflow-hidden">
-                        <div class="fw-semibold text-truncate" style="max-width:150px;">
-                            <?php echo htmlspecialchars($emp['full_name']); ?>
-                        </div>
-                        <div class="text-muted" style="font-size:.7rem;">
-                            <?php echo $emp['has_mapping']
-                                ? 'ID: ' . htmlspecialchars(implode(', ', $emp['clock_ids']))
-                                : 'Sin ID configurado'; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-    </div>
-</div>
+<div class="alert alert-light border"><strong>Después de sincronizar:</strong> revisá <a href="<?php echo URLROOT; ?>/admin/mapeoIncompleto">Pendientes de identificación</a> para vincular solo las personas que usan reloj. Los demás empleados no requieren un ID.</div>
 
 <?php require APPROOT . '/views/inc/footer.php'; ?>

@@ -95,11 +95,31 @@ class LoginController {
         $_SESSION['user_role'] = $user->role;
         $_SESSION['user_company_id'] = $user->company_id;
         $_SESSION['user_area_id'] = !empty($user->area_id) ? (int)$user->area_id : null;
+        // Suite P&M: la organización del usuario define su vista (Paviotti o Moderna)
+        // y bloquea el selector de contexto a las empresas de su grupo.
+        $_SESSION['user_employee_group'] = (isset($user->employee_group)
+            && in_array($user->employee_group, ['paviotti', 'moderna'], true))
+            ? $user->employee_group : 'paviotti';
         $companyModel = new Company();
         $_SESSION['user_company_name'] = $companyModel->getNameById($user->company_id);
         $_SESSION['user_profile_picture'] = $user->profile_picture ?? 'default.png';
+        if (function_exists('access_control_ready') && access_control_ready()) {
+            $scope = (new AccessControl())->currentScopeForUser((int)$user->id);
+            // El scope primario solo fija la empresa activa si pertenece a la
+            // organización del usuario (candado, mismo criterio que
+            // setAdminActiveCompany y access_set_active_scope).
+            $scopeOrgOk = $scope && (!function_exists('org_group_of_company')
+                || org_group_of_company((int)$scope->company_id) === $_SESSION['user_employee_group']
+                || org_group_of_company((int)$scope->company_id) === '');
+            if ($scope && $scopeOrgOk) {
+                $_SESSION['access_scope_id'] = (int)$scope->id;
+                $_SESSION['user_company_id'] = (int)$scope->company_id;
+                $_SESSION['user_branch_id'] = (int)($scope->branch_id ?? 0);
+                $_SESSION['user_company_name'] = $companyModel->getNameById((int)$scope->company_id);
+            }
+        }
 
-        if ($user->role === 'admin' || $user->role === 'supervisor') {
+        if (function_exists('access_is_staff') ? access_is_staff() : ($user->role === 'admin' || $user->role === 'supervisor')) {
             redirect('admin/dashboard');
         }
         redirect('employee/index');
@@ -109,12 +129,18 @@ class LoginController {
      * Destruye la sesión del usuario para cerrar la sesión.
      */
     public function logout(){
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            redirect(isLoggedIn() ? (isStaffAdmin() ? 'admin/dashboard' : 'employee/index') : 'login');
+        }
+        csrf_verify();
         unset($_SESSION['user_id']);
         unset($_SESSION['user_username']);
         unset($_SESSION['user_full_name']); // Limpia el nombre completo de la sesión
         unset($_SESSION['user_role']);
         unset($_SESSION['user_company_id']);
         unset($_SESSION['user_company_name']);
+        unset($_SESSION['user_branch_id']);
+        unset($_SESSION['access_scope_id']);
         unset($_SESSION['user_profile_picture']);
         session_destroy();
         redirect('login');

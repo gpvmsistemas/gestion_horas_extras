@@ -21,6 +21,7 @@
             <p>Campana en el navbar</p>
         </a>
     </div>
+    <?php if (!(function_exists('org_hides_pay_stubs') && org_hides_pay_stubs())): ?>
     <div class="col-md-6 col-lg-3">
         <a href="<?php echo URLROOT; ?>/notificationsAdmin/payStubs" class="notif-hub-card">
             <i class="fas fa-file-invoice-dollar"></i>
@@ -28,6 +29,7 @@
             <p>Carga y firma digital</p>
         </a>
     </div>
+    <?php endif; ?>
     <?php if (function_exists('surveys_is_ready') && surveys_is_ready()): ?>
     <div class="col-md-6 col-lg-3">
         <a href="<?php echo URLROOT; ?>/surveyAdmin/index" class="notif-hub-card">

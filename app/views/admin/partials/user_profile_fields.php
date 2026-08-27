@@ -95,14 +95,48 @@ if ($birthVal !== '' && preg_match('/^\d{4}-\d{2}-\d{2}/', $birthVal)) {
     </div>
 </div>
 
+<?php $personalReady = (new User())->isPersonalFileReady(); ?>
+<?php if ($personalReady): ?>
+<div class="row">
+    <div class="col-md-4 mb-3">
+        <label for="marital_status" class="form-label">Estado civil</label>
+        <select name="marital_status" id="marital_status" class="form-select" autocomplete="off">
+            <?php $currentMarital = (string)$pf('marital_status'); ?>
+            <?php foreach (User::maritalStatusOptions() as $val => $label): ?>
+            <option value="<?php echo htmlspecialchars($val); ?>" <?php echo $currentMarital === $val ? 'selected' : ''; ?>>
+                <?php echo htmlspecialchars($label); ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+    <div class="col-md-2 mb-3">
+        <label for="children_count" class="form-label">Hijos</label>
+        <input type="number" name="children_count" id="children_count" class="form-control" min="0" max="20"
+               value="<?php echo htmlspecialchars((string)$pf('children_count')); ?>" autocomplete="off">
+    </div>
+    <div class="col-md-6 mb-3">
+        <label for="hr_notes" class="form-label">Observaciones de RRHH <small class="text-muted">(hijos, referencias, detalle)</small></label>
+        <textarea name="hr_notes" id="hr_notes" class="form-control" rows="2" autocomplete="off"><?php echo htmlspecialchars((string)$pf('hr_notes')); ?></textarea>
+    </div>
+</div>
+<?php endif; ?>
+
 <h6 class="mb-2 text-muted small text-uppercase">Contacto de emergencia</h6>
 <div class="row">
-    <div class="col-md-6 mb-3">
+    <div class="col-md-5 mb-3">
         <label for="emergency_contact_name" class="form-label">Nombre</label>
         <input type="text" name="emergency_contact_name" id="emergency_contact_name" class="form-control"
                value="<?php echo htmlspecialchars($pf('emergency_contact_name')); ?>" autocomplete="off">
     </div>
-    <div class="col-md-6 mb-3">
+    <?php if ($personalReady): ?>
+    <div class="col-md-3 mb-3">
+        <label for="emergency_contact_relationship" class="form-label">Parentesco</label>
+        <input type="text" name="emergency_contact_relationship" id="emergency_contact_relationship" class="form-control"
+               placeholder="Madre, hermano, pareja…" maxlength="60"
+               value="<?php echo htmlspecialchars((string)$pf('emergency_contact_relationship')); ?>" autocomplete="off">
+    </div>
+    <?php endif; ?>
+    <div class="col-md-4 mb-3">
         <label for="emergency_contact_phone" class="form-label">Teléfono</label>
         <input type="tel" name="emergency_contact_phone" id="emergency_contact_phone" class="form-control"
                value="<?php echo htmlspecialchars($pf('emergency_contact_phone')); ?>" autocomplete="off">

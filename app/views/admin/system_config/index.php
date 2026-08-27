@@ -250,6 +250,7 @@ $mail = $mail_settings ?? null;
                     <input type="password" name="clock_api_password" class="form-control" placeholder="Vacío = no cambiar" autocomplete="new-password">
                 </div>
             </div>
+            <?php if (!function_exists('org_is_moderna') || !org_is_moderna()): ?>
             <h2 class="h6 mb-3">Ecofarma</h2>
             <div class="row g-3">
                 <div class="col-md-6">
@@ -262,6 +263,7 @@ $mail = $mail_settings ?? null;
                            value="<?php echo (int)$v['ecofarma_default_comision_pct']; ?>">
                 </div>
             </div>
+            <?php endif; ?>
             <button type="submit" class="btn btn-primary mt-4">Guardar</button>
         </form>
     </div>

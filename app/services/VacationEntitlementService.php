@@ -1,14 +1,16 @@
 <?php
 
 class VacationEntitlementService {
+    private $db;
     private $agreementModel;
     private $balanceModel;
     private $userModel;
 
-    public function __construct() {
-        $this->agreementModel = new CollectiveAgreement();
-        $this->balanceModel = new VacationBalance();
-        $this->userModel = new User();
+    public function __construct($db = null) {
+        $this->db = $db instanceof Database ? $db : new Database();
+        $this->agreementModel = new CollectiveAgreement($this->db);
+        $this->balanceModel = new VacationBalance($this->db);
+        $this->userModel = new User($this->db);
     }
 
     public function isReady() {
@@ -23,7 +25,7 @@ class VacationEntitlementService {
             return $this->agreementModel->getById((int)$user->agreement_id);
         }
         if (!empty($user->area_id)) {
-            $area = (new Area())->getById((int)$user->area_id);
+            $area = (new Area($this->db))->getById((int)$user->area_id);
             if ($area && !empty($area->agreement_id)) {
                 return $this->agreementModel->getById((int)$area->agreement_id);
             }
@@ -129,16 +131,20 @@ class VacationEntitlementService {
             $refDate = date('Y-m-d');
         }
 
-        $bounds = vacation_period_for_date(
-            $refDate,
+        $requestedLabel = trim($params['period_label'] ?? '');
+        $year = preg_match('/^\d{4}$/', $requestedLabel)
+            ? (int)$requestedLabel
+            : (int)date('Y', strtotime($refDate));
+        $bounds = vacation_period_bounds(
+            $year,
             (int)$agreement->period_start_month,
             (int)$agreement->period_start_day
         );
-        if (!empty($params['period_label'])) {
-            $bounds['period_label'] = trim($params['period_label']);
+        if ($requestedLabel !== '') {
+            $bounds['period_label'] = $requestedLabel;
         }
 
-        $cutDate = $bounds['period_start'];
+        $cutDate = $bounds['period_end'];
         $months = $this->seniorityMonthsBetween($hireDate, $cutDate);
         $rules = $this->agreementModel->getRules((int)$agreement->id);
         $rule = null;
@@ -170,7 +176,7 @@ class VacationEntitlementService {
 
         return [
             'ok' => true,
-            'message' => 'Antigüedad al inicio del período (' . date('d/m/Y', strtotime($cutDate)) . '): '
+            'message' => 'Antigüedad al 31 de diciembre (' . date('d/m/Y', strtotime($cutDate)) . '): '
                 . $seniorityLabel . '. Corresponden '
                 . vacation_format_days($rule->days_entitled) . ' días en el período '
                 . $bounds['period_label'] . '.',
@@ -195,7 +201,8 @@ class VacationEntitlementService {
         if (!$agreement) {
             return null;
         }
-        $months = $this->getSeniorityMonths($userId, $asOfDate);
+        $reference = $asOfDate ?: date('Y-m-d');
+        $months = $this->getSeniorityMonths($userId, date('Y-12-31', strtotime($reference)));
         $rules = $this->agreementModel->getRules((int)$agreement->id);
         foreach ($rules as $rule) {
             $min = (int)$rule->min_months;
@@ -249,37 +256,49 @@ class VacationEntitlementService {
             $bounds['period_label'] = $periodLabel;
         }
 
-        $existing = $this->balanceModel->getPeriodByUserLabel($userId, $bounds['period_label']);
-        $cutDate = $bounds['period_start'];
+        $cutDate = $bounds['period_end'];
         $rule = $this->getApplicableRule($userId, $cutDate);
         if (!$rule) {
             return ['ok' => false, 'message' => 'No hay regla de vacaciones para la antigüedad del empleado.'];
         }
 
         $daysEntitled = (float)$rule->days_entitled;
-        $daysTaken = $existing ? (float)$existing->days_taken : 0;
-
-        if ($existing) {
-            $this->balanceModel->updatePeriodBalances((int)$existing->id, $daysEntitled, $daysTaken);
-            $periodId = (int)$existing->id;
-        } else {
-            $periodId = $this->balanceModel->createPeriod([
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $existing = $this->balanceModel->getPeriodByUserLabelForUpdate($userId, $bounds['period_label'], 'annual');
+            $daysTaken = $existing ? (float)$existing->days_taken : 0;
+            if ($existing) {
+                $difference = $daysEntitled - (float)$existing->days_entitled;
+                if (!$this->balanceModel->updatePeriodBalances((int)$existing->id, $daysEntitled, $daysTaken)) {
+                    throw new RuntimeException('No se pudo actualizar el período.');
+                }
+                $periodId = (int)$existing->id;
+                if (abs($difference) > 0.001) {
+                    $this->balanceModel->addMovement([
+                        'period_id'=>$periodId, 'user_id'=>$userId, 'movement_type'=>'adjustment',
+                        'source'=>'liquidation', 'days'=>$difference,
+                        'notes'=>'Recalculo del período ' . $bounds['period_label'],
+                        'created_by'=>$adminId > 0 ? $adminId : (int)($_SESSION['user_id'] ?? 0),
+                    ]);
+                }
+            } else {
+                $periodId = $this->balanceModel->createPeriod([
                 'user_id' => $userId,
                 'period_label' => $bounds['period_label'],
                 'period_start' => $bounds['period_start'],
                 'period_end' => $bounds['period_end'],
                 'agreement_id' => (int)$agreement->id,
                 'agreement_rule_id' => (int)$rule->id,
+                'count_mode_snapshot' => $rule->day_count_mode,
                 'days_entitled' => $daysEntitled,
                 'days_taken' => $daysTaken,
                 'status' => 'open',
                 'liquidated_at' => date('Y-m-d H:i:s'),
                 'liquidated_by' => $adminId > 0 ? $adminId : null,
-            ]);
-            if ($periodId <= 0) {
-                return ['ok' => false, 'message' => 'Error al crear el período de vacaciones.'];
-            }
-            $this->balanceModel->addMovement([
+                ]);
+                if ($periodId <= 0) throw new RuntimeException('Error al crear el período de vacaciones.');
+                $this->balanceModel->addMovement([
                 'period_id' => $periodId,
                 'user_id' => $userId,
                 'movement_type' => 'accrual',
@@ -287,15 +306,19 @@ class VacationEntitlementService {
                 'days' => $daysEntitled,
                 'notes' => 'Liquidación período ' . $bounds['period_label'],
                 'created_by' => $adminId > 0 ? $adminId : (int)($_SESSION['user_id'] ?? 0),
-            ]);
+                ]);
+            }
+            $this->balanceModel->syncUserVacationCache($userId);
+            if ($ownTx) $this->db->commit();
+            return [
+                'ok' => true,
+                'message' => 'Período ' . $bounds['period_label'] . ' liquidado: ' . vacation_format_days($daysEntitled) . ' días corresponden.',
+                'period_id' => $periodId,
+            ];
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            return ['ok'=>false, 'message'=>$e instanceof RuntimeException ? $e->getMessage() : 'No se pudo liquidar el período.'];
         }
-
-        $this->balanceModel->syncUserVacationCache($userId);
-        return [
-            'ok' => true,
-            'message' => 'Período ' . $bounds['period_label'] . ' liquidado: ' . vacation_format_days($daysEntitled) . ' días corresponden.',
-            'period_id' => $periodId,
-        ];
     }
 
     /**
@@ -319,28 +342,35 @@ class VacationEntitlementService {
         $bounds = vacation_period_bounds($startYear, (int)$agreement->period_start_month, (int)$agreement->period_start_day);
         $bounds['period_label'] = $periodLabel;
 
-        $existing = $this->balanceModel->getPeriodByUserLabel($userId, $periodLabel);
-        if ($existing) {
-            $this->balanceModel->updatePeriodBalances((int)$existing->id, $daysEntitled, $daysTaken);
-            $periodId = (int)$existing->id;
-        } else {
-            $rule = $this->getApplicableRule($userId, $bounds['period_start']);
-            $periodId = $this->balanceModel->createPeriod([
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $existing = $this->balanceModel->getPeriodByUserLabelForUpdate($userId, $periodLabel, 'annual');
+            if ($existing) {
+                if (!$this->balanceModel->updatePeriodBalances((int)$existing->id, $daysEntitled, $daysTaken)) {
+                    throw new RuntimeException('No se pudo actualizar el período.');
+                }
+                $periodId = (int)$existing->id;
+            } else {
+                $rule = $this->getApplicableRule($userId, $bounds['period_start']);
+                $periodId = $this->balanceModel->createPeriod([
                 'user_id' => $userId,
                 'period_label' => $periodLabel,
                 'period_start' => $bounds['period_start'],
                 'period_end' => $bounds['period_end'],
                 'agreement_id' => (int)$agreement->id,
                 'agreement_rule_id' => $rule ? (int)$rule->id : null,
+                'count_mode_snapshot' => $rule ? $rule->day_count_mode : 'calendar',
                 'days_entitled' => $daysEntitled,
                 'days_taken' => $daysTaken,
                 'status' => 'open',
                 'liquidated_at' => date('Y-m-d H:i:s'),
                 'liquidated_by' => $adminId,
-            ]);
-        }
+                ]);
+                if ($periodId <= 0) throw new RuntimeException('No se pudo crear el período.');
+            }
 
-        $this->balanceModel->addMovement([
+            $this->balanceModel->addMovement([
             'period_id' => $periodId,
             'user_id' => $userId,
             'movement_type' => 'import',
@@ -348,10 +378,14 @@ class VacationEntitlementService {
             'days' => (float)$daysEntitled - (float)$daysTaken,
             'notes' => $notes ?: 'Carga inicial ' . $periodLabel,
             'created_by' => $adminId,
-        ]);
-
-        $this->balanceModel->syncUserVacationCache($userId);
-        return ['ok' => true, 'message' => 'Período ' . $periodLabel . ' actualizado.', 'period_id' => $periodId];
+            ]);
+            $this->balanceModel->syncUserVacationCache($userId);
+            if ($ownTx) $this->db->commit();
+            return ['ok' => true, 'message' => 'Período ' . $periodLabel . ' actualizado.', 'period_id' => $periodId];
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            return ['ok'=>false, 'message'=>$e instanceof RuntimeException ? $e->getMessage() : 'No se pudo importar el período.'];
+        }
     }
 
     public function getSummaryForUser($userId) {
@@ -411,7 +445,7 @@ class VacationEntitlementService {
             $resolvedLabel = $bounds['period_label'] ?? '';
         }
         if ($resolvedLabel === '') {
-            $resolvedLabel = vacation_period_label_from_start(date('Y') . '-10-01');
+            $resolvedLabel = (string)date('Y');
         }
 
         $liquidated = 0;
@@ -477,6 +511,155 @@ class VacationEntitlementService {
     public function countDaysForUserRange($userId, $startDate, $endDate) {
         $rule = $this->getApplicableRule($userId, $startDate);
         $mode = $rule ? $rule->day_count_mode : 'weekdays';
-        return vacation_count_days_in_range($startDate, $endDate, $mode);
+        $user = $this->userModel->getUserById((int)$userId);
+        return vacation_count_days_in_range(
+            $startDate, $endDate, $mode, (int)($user->company_id ?? 0), $this->db, (int)($user->branch_id ?? 0)
+        );
+    }
+
+    public function addHistoricalBalance($userId, $year, $days, $adminId, $reason) {
+        $year = (int)$year;
+        $days = (float)$days;
+        $reason = trim($reason);
+        if ($year < 1970 || $year > (int)date('Y') || $days <= 0 || $reason === '') {
+            return ['ok'=>false,'message'=>'Indicá un año válido, días mayores a cero y el motivo.'];
+        }
+        $user = $this->userModel->getUserById((int)$userId);
+        $agreement = $this->getEffectiveAgreement($user);
+        if (!$user || !$agreement) {
+            return ['ok'=>false,'message'=>'El empleado debe tener un convenio efectivo.'];
+        }
+        $bounds = vacation_period_bounds($year, 1, 1);
+        $rule = $this->getApplicableRule($userId, $bounds['period_end']);
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) {
+            $this->db->beginTransaction();
+        }
+        try {
+            $period = $this->balanceModel->getPeriodByUserLabel($userId, (string)$year, 'historical');
+            if ($period) {
+                $adjustment = (float)($period->adjustment_days ?? 0) + $days;
+                if (!$this->balanceModel->updatePeriodBalances((int)$period->id, (float)$period->days_entitled,
+                    (float)$period->days_taken, $adjustment)) {
+                    throw new RuntimeException('No se pudo actualizar el período.');
+                }
+                $periodId = (int)$period->id;
+            } else {
+                $periodId = $this->balanceModel->createPeriod([
+                    'user_id'=>$userId,'period_label'=>(string)$year,
+                    'period_start'=>$bounds['period_start'],'period_end'=>$bounds['period_end'],
+                    'balance_type'=>'historical','agreement_id'=>(int)$agreement->id,
+                    'agreement_rule_id'=>$rule ? (int)$rule->id : null,
+                    'count_mode_snapshot'=>$rule ? $rule->day_count_mode : 'calendar',
+                    'days_entitled'=>0,'days_taken'=>0,'adjustment_days'=>$days,
+                    'origin_notes'=>$reason,'status'=>'open','liquidated_at'=>date('Y-m-d H:i:s'),
+                    'liquidated_by'=>$adminId,
+                ]);
+            }
+            if ($periodId <= 0) {
+                throw new RuntimeException('No se pudo crear el período histórico.');
+            }
+            $this->balanceModel->addMovement([
+                'period_id'=>$periodId,'user_id'=>$userId,'movement_type'=>'opening_balance',
+                'source'=>'manual','days'=>$days,'notes'=>'Saldo reconocido ' . $year . ': ' . $reason,
+                'created_by'=>$adminId,
+                'operation_key'=>'historical:' . $userId . ':' . $year . ':' . str_replace('.', '', (string)microtime(true)),
+            ]);
+            $this->balanceModel->syncUserVacationCache($userId);
+            if ($ownTx) {
+                $this->db->commit();
+            }
+            return ['ok'=>true,'message'=>'Se reconocieron ' . vacation_format_days($days) . ' días del período ' . $year . '.'];
+        } catch (Throwable $e) {
+            if ($ownTx) {
+                $this->db->rollBack();
+            }
+            return ['ok'=>false,'message'=>'No se pudo registrar el saldo histórico.'];
+        }
+    }
+
+    public function addConventionalCredit($userId, $year, $days, $expiresAt, $adminId, $reason) {
+        $year = (int)$year;
+        $days = (float)$days;
+        $reason = trim($reason);
+        if ($year < 1970 || $year > (int)date('Y') + 1 || $days <= 0 || $reason === ''
+            || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$expiresAt)) {
+            return ['ok'=>false,'message'=>'Indicá año, días, vencimiento y motivo válidos.'];
+        }
+        $user = $this->userModel->getUserById((int)$userId);
+        $agreement = $this->getEffectiveAgreement($user);
+        if (!$user || !$agreement) {
+            return ['ok'=>false,'message'=>'El empleado debe tener un convenio efectivo.'];
+        }
+        $bounds = vacation_period_bounds($year, 1, 1);
+        $rule = $this->getApplicableRule($userId, $bounds['period_end']);
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $period = $this->balanceModel->getPeriodByUserLabel($userId, (string)$year, 'conventional_credit');
+            if ($period) {
+                $adjustment = (float)$period->adjustment_days + $days;
+                $this->balanceModel->updatePeriodBalances((int)$period->id, (float)$period->days_entitled,
+                    (float)$period->days_taken, $adjustment);
+                $periodId = (int)$period->id;
+                $this->balanceModel->updatePeriodExpiry($periodId, $expiresAt);
+            } else {
+                $periodId = $this->balanceModel->createPeriod([
+                    'user_id'=>$userId,'period_label'=>(string)$year,
+                    'period_start'=>$bounds['period_start'],'period_end'=>$bounds['period_end'],
+                    'balance_type'=>'conventional_credit','agreement_id'=>(int)$agreement->id,
+                    'agreement_rule_id'=>$rule ? (int)$rule->id : null,
+                    'count_mode_snapshot'=>$rule ? $rule->day_count_mode : 'calendar',
+                    'days_entitled'=>0,'days_taken'=>0,'adjustment_days'=>$days,
+                    'expires_at'=>$expiresAt,'origin_notes'=>$reason,'status'=>'open',
+                    'liquidated_at'=>date('Y-m-d H:i:s'),'liquidated_by'=>$adminId,
+                ]);
+            }
+            if ($periodId <= 0) throw new RuntimeException('No se pudo crear el crédito.');
+            $this->balanceModel->addMovement([
+                'period_id'=>$periodId,'user_id'=>$userId,'movement_type'=>'opening_balance','source'=>'manual',
+                'days'=>$days,'notes'=>'Crédito convencional ' . $year . ': ' . $reason,'created_by'=>$adminId,
+                'operation_key'=>'credit:' . $userId . ':' . $year . ':' . str_replace('.', '', (string)microtime(true)),
+            ]);
+            $this->balanceModel->syncUserVacationCache($userId);
+            if ($ownTx) $this->db->commit();
+            return ['ok'=>true,'message'=>'Crédito convencional registrado por ' . vacation_format_days($days) . ' días.'];
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            return ['ok'=>false,'message'=>'No se pudo registrar el crédito convencional.'];
+        }
+    }
+
+    public function convertPeriodBalance($userId, $periodId, $targetMode, $targetPending, $adminId, $reason) {
+        $validModes = array_keys(vacation_day_count_modes());
+        $reason = trim($reason);
+        if (!in_array($targetMode, $validModes, true) || (float)$targetPending < 0 || $reason === '') {
+            return ['ok'=>false,'message'=>'Indicá unidad, saldo convertido y motivo.'];
+        }
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $old = $this->balanceModel->getPeriodByIdForUpdate($periodId);
+            if (!$old || (int)$old->user_id !== (int)$userId) {
+                throw new RuntimeException('Período no encontrado.');
+            }
+            $oldPending = (float)$old->days_pending;
+            $oldMode = $old->count_mode_snapshot;
+            if (!$this->balanceModel->convertPeriod($periodId, $targetMode, (float)$targetPending, $reason)) {
+                throw new RuntimeException('No se pudo convertir el período.');
+            }
+            $this->balanceModel->addMovement([
+                'period_id'=>$periodId,'user_id'=>$userId,'movement_type'=>'conversion','source'=>'manual',
+                'days'=>(float)$targetPending - $oldPending,'created_by'=>$adminId,
+                'notes'=>$oldMode . ' → ' . $targetMode . '; ' . $oldPending . ' → ' . (float)$targetPending . '. ' . $reason,
+                'operation_key'=>'conversion:' . $periodId . ':' . str_replace('.', '', (string)microtime(true)),
+            ]);
+            $this->balanceModel->syncUserVacationCache($userId);
+            if ($ownTx) $this->db->commit();
+            return ['ok'=>true,'message'=>'Conversión registrada y saldo actualizado.'];
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
     }
 }

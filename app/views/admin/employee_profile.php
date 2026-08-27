@@ -301,6 +301,7 @@ $salidas  = count(array_filter($data['clockings'], fn($c) => ($c->direction ?? '
                         <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-roadmap" id="tab-roadmap-link">Roadmap</a></li>
                         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-marc">Marcaciones</a></li>
                         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sched">Horario</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-record">Legajo</a></li>
                         <?php if (!empty($data['overtime_tab_enabled'])): ?>
                         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-he">Horas extras</a></li>
                         <?php endif; ?>
@@ -326,6 +327,7 @@ $salidas  = count(array_filter($data['clockings'], fn($c) => ($c->direction ?? '
                 <div class="card-body">
                     <div class="tab-content">
                         <?php require APPROOT . '/views/admin/partials/employee_roadmap_tab.php'; ?>
+                        <?php require APPROOT . '/views/admin/partials/employee_complete_record_tab.php'; ?>
                         <div class="tab-pane fade" id="tab-marc">
                             <div class="admin-kpi-grid mb-4" style="grid-template-columns:repeat(4,1fr);">
                                 <div class="admin-kpi-card">

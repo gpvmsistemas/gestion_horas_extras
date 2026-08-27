@@ -6,8 +6,8 @@
 class Request {
     private $db;
 
-    public function __construct(){
-        $this->db = new Database;
+    public function __construct($db = null){
+        $this->db = $db instanceof Database ? $db : new Database;
     }
 
     /**
@@ -89,6 +89,32 @@ class Request {
         return $this->db->resultSet();
     }
 
+    /** Versión multi-empresa (contexto "Todas las empresas del grupo"). */
+    public function getAllRequestsByCompanies(array $companyIds) {
+        $in = implode(',', array_map('intval', $companyIds ?: [0]));
+        $sql = "SELECT r.*, u.full_name, u.profile_picture, rt.name AS type_name, rt.color, c.name AS company_name
+                FROM requests r
+                JOIN users u ON r.user_id = u.id
+                JOIN request_types rt ON r.request_type_id = rt.id
+                LEFT JOIN companies c ON c.id = u.company_id
+                WHERE u.company_id IN ($in)
+                ORDER BY FIELD(r.status, 'Pendiente', 'Aprobado', 'Rechazado'), r.start_date DESC";
+        $this->db->query($sql);
+        return $this->db->resultSet();
+    }
+
+    /** Una solicitud si pertenece a alguna de las empresas del contexto. */
+    public function getRequestByIdForCompanies($id, array $companyIds) {
+        $in = implode(',', array_map('intval', $companyIds ?: [0]));
+        $this->db->query("SELECT r.*, u.full_name, u.company_id, rt.name AS type_name
+                FROM requests r
+                JOIN users u ON r.user_id = u.id
+                JOIN request_types rt ON r.request_type_id = rt.id
+                WHERE r.id = :id AND u.company_id IN ($in)");
+        $this->db->bind(':id', (int)$id);
+        return $this->db->single();
+    }
+
     private static function pendingQueueWhere() {
         return "r.status = 'Pendiente' AND r.admin_dismissed_at IS NULL";
     }
@@ -108,6 +134,30 @@ class Request {
         ");
         $this->db->bind(':id', $id);
         return $this->db->single();
+    }
+
+    public function getRequestByIdForUpdate($id) {
+        $this->db->query("SELECT r.*, u.company_id, rt.name AS type_name
+            FROM requests r
+            JOIN users u ON u.id = r.user_id
+            JOIN request_types rt ON rt.id = r.request_type_id
+            WHERE r.id = :id FOR UPDATE");
+        $this->db->bind(':id', (int)$id);
+        return $this->db->single();
+    }
+
+    public function saveVacationReview($id, $days, array $snapshot, $exceptionReason = '', $adminId = 0) {
+        $this->db->query('UPDATE requests SET vacation_counted_days = :days,
+            vacation_rule_snapshot = :snapshot, vacation_exception_reason = :reason,
+            vacation_exception_by = :exception_by, vacation_exception_at = :exception_at
+            WHERE id = :id');
+        $this->db->bind(':days', (float)$days);
+        $this->db->bind(':snapshot', json_encode($snapshot, JSON_UNESCAPED_UNICODE));
+        $this->db->bind(':reason', $exceptionReason !== '' ? $exceptionReason : null);
+        $this->db->bind(':exception_by', $exceptionReason !== '' ? (int)$adminId : null);
+        $this->db->bind(':exception_at', $exceptionReason !== '' ? date('Y-m-d H:i:s') : null);
+        $this->db->bind(':id', (int)$id);
+        return $this->db->execute();
     }
 
     public function getRequestByIdForCompany($id, $companyId) {
@@ -234,7 +284,13 @@ class Request {
     /**
      * Obtiene las solicitudes aprobadas para el planificador.
      */
-    public function getApprovedRequestsForPeriod($startDate, $endDate, $companyId) {
+    public function getApprovedRequestsForPeriod($startDate, $endDate, $companyId, $branchId = null) {
+        $userModel = new User();
+        $branchReady = $userModel->isBranchAssignmentReady();
+        $multipleBranchReady = $userModel->isMultipleBranchAssignmentsReady();
+        $branchWhere = $multipleBranchReady && (int)$branchId > 0
+            ? ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)'
+            : (($branchReady && (int)$branchId > 0) ? ' AND u.branch_id = :branch_id' : '');
         $sql = "SELECT 
                     r.*, 
                     u.full_name,
@@ -246,12 +302,15 @@ class Request {
                 WHERE u.company_id = :company_id
                 AND r.status = 'Aprobado'
                 AND r.start_date <= :end_date 
-                AND IFNULL(r.end_date, r.start_date) >= :start_date";
+                AND IFNULL(r.end_date, r.start_date) >= :start_date{$branchWhere}";
 
         $this->db->query($sql);
         $this->db->bind(':company_id', $companyId);
         $this->db->bind(':start_date', $startDate);
         $this->db->bind(':end_date', $endDate);
+        if (($branchReady || $multipleBranchReady) && (int)$branchId > 0) {
+            $this->db->bind(':branch_id', (int)$branchId);
+        }
         
         return $this->db->resultSet();
     }

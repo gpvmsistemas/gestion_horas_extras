@@ -153,7 +153,23 @@ class EmployeeController {
         $this->view('employee/index', $data);
     }
 
+    public function hrDocuments(){
+        $m=new HrSuite();$uid=(int)$_SESSION['user_id'];
+        $ppe=$m->query('SELECT pd.*,pi.name item_name FROM ppe_deliveries pd JOIN ppe_items pi ON pi.id=pd.item_id WHERE pd.user_id=? ORDER BY pd.delivered_on DESC',[$uid]);
+        $assets=$m->query("SELECT a.*,ac.name category_name FROM assets a JOIN asset_categories ac ON ac.id=a.category_id WHERE a.current_custodian_user_id=? AND a.status='assigned'",[$uid]);
+        $incidents=$m->query("SELECT * FROM employee_incidents WHERE user_id=? AND workflow_status IN('notified','received','refused') ORDER BY incident_date DESC",[$uid]);
+        $this->view('employee/hr_documents',compact('ppe','assets','incidents'));
+    }
+
+    public function acknowledgePpe($id){if($_SERVER['REQUEST_METHOD']!=='POST')redirect('employee/hrDocuments');csrf_verify();$this->verifyOwnPassword($_POST['password']??'');$m=new HrSuite();$row=$m->one("SELECT * FROM ppe_deliveries WHERE id=? AND user_id=? AND status='issued'",[(int)$id,(int)$_SESSION['user_id']]);if($row){$m->execute("UPDATE ppe_deliveries SET status='acknowledged',acknowledged_at=NOW(),acknowledged_ip=? WHERE id=?",[$_SERVER['REMOTE_ADDR']??null,$id]);$m->audit()->record('ppe.acknowledged','ppe_delivery',$id,['status'=>'issued'],['status'=>'acknowledged','document_hash'=>$row->document_hash],'Acuse de recibo con clave',$row->company_id,$row->branch_id);}redirect('employee/hrDocuments');}
+    public function acknowledgeIncident($id){if($_SERVER['REQUEST_METHOD']!=='POST')redirect('employee/hrDocuments');csrf_verify();$this->verifyOwnPassword($_POST['password']??'');$decision=($_POST['decision']??'received')==='refused'?'refused':'received';$statement=trim($_POST['statement']??'');$m=new HrSuite();$r=$m->one("SELECT ei.*,u.company_id,u.branch_id FROM employee_incidents ei JOIN users u ON u.id=ei.user_id WHERE ei.id=? AND ei.user_id=? AND ei.workflow_status='notified'",[(int)$id,(int)$_SESSION['user_id']]);if($r){$m->execute('INSERT INTO employee_incident_acknowledgements(incident_id,user_id,decision,statement_text,document_hash,request_ip) VALUES(?,?,?,?,?,?)',[$id,(int)$_SESSION['user_id'],$decision,$statement?:null,$r->document_hash,$_SERVER['REMOTE_ADDR']??null]);$m->execute('UPDATE employee_incidents SET workflow_status=? WHERE id=?',[$decision,$id]);$m->audit()->record('discipline.acknowledged','employee_incident',$id,['status'=>'notified'],['status'=>$decision,'statement'=>$statement,'document_hash'=>$r->document_hash],'Acuse de recibo con clave',$r->company_id,$r->branch_id);}redirect('employee/hrDocuments');}
+    private function verifyOwnPassword($password){$db=new Database();$db->query('SELECT password FROM users WHERE id=?');$u=$db->single([(int)$_SESSION['user_id']]);if(!$u||!password_verify((string)$password,$u->password)){$_SESSION['flash_error']='Clave incorrecta.';redirect('employee/hrDocuments');}}
+
     public function misHorarios(){
+        if (function_exists('access_portal_feature_allowed') && !access_portal_feature_allowed('schedule', true)) {
+            $_SESSION['flash_error'] = 'Tu horario no está disponible para este contexto de trabajo.';
+            redirect('employee/index');
+        }
         $userId = $_SESSION['user_id'];
 
         $month = (isset($_GET['mes']) && preg_match('/^\d{4}-\d{2}$/', $_GET['mes']))
@@ -253,6 +269,10 @@ class EmployeeController {
     }
 
     public function profile() {
+        if (function_exists('access_portal_feature_allowed') && !access_portal_feature_allowed('profile_edit', true)) {
+            $_SESSION['flash_error'] = 'La edición de perfil no está disponible.';
+            redirect('employee/index');
+        }
         $user = $this->userModel->getUserById($_SESSION['user_id']);
         $companyName = null;
         if ($user && !empty($user->company_id)) {
@@ -262,6 +282,10 @@ class EmployeeController {
     }
 
     public function updateProfile() {
+        if (function_exists('access_portal_feature_allowed') && !access_portal_feature_allowed('profile_edit', true)) {
+            $_SESSION['flash_error'] = 'La edición de perfil no está disponible.';
+            redirect('employee/index');
+        }
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             redirect('employee/profile');
         }
@@ -432,6 +456,7 @@ class EmployeeController {
                 'title' => notification_apply_placeholders($a->title, $userId),
                 'body' => notification_apply_placeholders($a->body, $userId),
                 'image_url' => !empty($a->image_path) ? announcement_image_stream_url((int)$a->id) : '',
+                'video_url' => (!empty($a->video_path) && function_exists('announcement_video_stream_url')) ? announcement_video_stream_url((int)$a->id) : '',
                 'link_url' => $a->link_url ?? '',
                 'link_label' => $a->link_label ?? 'Ver más',
             ];
@@ -546,6 +571,25 @@ class EmployeeController {
         header('Cache-Control: private, no-cache');
         readfile($absolute);
         exit;
+    }
+
+    public function streamAnnouncementVideo($id = 0) {
+        if (!$this->announcementDisplay) {
+            http_response_code(404);
+            exit;
+        }
+        $id = (int)$id;
+        $userId = (int)$_SESSION['user_id'];
+        if (!$this->announcementDisplay->userCanAccess($id, $userId)) {
+            http_response_code(403);
+            exit;
+        }
+        $row = (new Announcement())->getById($id);
+        if (!$row || empty($row->video_path)) {
+            http_response_code(404);
+            exit;
+        }
+        protected_upload_send($row->video_path, true, basename((string)$row->video_path));
     }
 
     public function streamAnnouncementImage($id = 0) {

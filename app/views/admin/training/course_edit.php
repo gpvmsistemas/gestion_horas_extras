@@ -55,6 +55,7 @@ require APPROOT . '/views/inc/header.php';
                 <div class="col-md-3">
                     <label class="form-label">Minutos est.</label>
                     <input type="number" name="estimated_minutes" class="form-control" value="<?php echo $c ? (int)$c->estimated_minutes : 60; ?>">
+                    <div class="row g-2 mt-2"><div class="col"><label class="form-label">Horas de formación</label><input type="number" step="0.25" min="0" name="duration_hours" class="form-control" value="<?php echo $c ? htmlspecialchars($c->duration_hours ?? '') : ''; ?>"></div><div class="col"><label class="form-label">Vigencia certificado (días)</label><input type="number" min="1" name="certificate_valid_days" class="form-control" value="<?php echo $c ? htmlspecialchars($c->certificate_valid_days ?? '') : ''; ?>"></div></div>
                 </div>
                 <div class="col-12">
                     <div class="form-check form-check-inline">

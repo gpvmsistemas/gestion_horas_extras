@@ -134,7 +134,18 @@ class PlanVsActualService {
         return null;
     }
 
+    private function attendanceControlMode($userId) {
+        try {
+            $this->db->query("SHOW COLUMNS FROM users LIKE 'attendance_control_mode'");
+            if (!$this->db->single()) return 'required';
+            $this->db->query('SELECT attendance_control_mode FROM users WHERE id = ?');
+            $row = $this->db->single([(int)$userId]);
+            return User::normalizeAttendanceControlMode($row->attendance_control_mode ?? 'required');
+        } catch (Throwable $e) { return 'required'; }
+    }
+
     public function computeAndSave($userId, $workDate, $companyId) {
+        $controlMode = $this->attendanceControlMode($userId);
         $plannedAbsence = $this->getPlannedAbsenceType($userId, $workDate);
         if ($plannedAbsence || $this->isOnLeave($userId, $workDate)) {
             return $this->summaryModel->upsert([
@@ -250,6 +261,14 @@ class PlanVsActualService {
         $delta = null;
         if ($planned !== null && $actualMinutes !== null) {
             $delta = $actualMinutes - $planned['planned_minutes'];
+        }
+
+        if ($controlMode === 'flexible') {
+            $status = 'flexible';
+            $alerts = ['FLEXIBLE_CONTROL'];
+        } elseif ($controlMode === 'no_clock') {
+            $status = 'no_clock';
+            $alerts = ['NO_CLOCK_CONTROL'];
         }
 
         return $this->summaryModel->upsert([

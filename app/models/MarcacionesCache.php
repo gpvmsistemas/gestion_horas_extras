@@ -7,6 +7,14 @@ class MarcacionesCache {
         $this->db = new Database;
     }
 
+    private function clockScopeReady() {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+        try { $this->db->query("SHOW TABLES LIKE 'clock_devices'"); $ready = (bool)$this->db->single(); }
+        catch (Throwable $e) { $ready = false; }
+        return $ready;
+    }
+
     public function existsBySerial($serialNo) {
         $this->db->query('SELECT id FROM marcaciones_cache WHERE event_serial_no = :serial');
         $this->db->bind(':serial', $serialNo);
@@ -72,15 +80,26 @@ class MarcacionesCache {
     }
 
     /**
-     * @param array $filters start_date, end_date, device_name, employee_id, person_q, mapped, direction
+     * @param array $filters start_date, end_date, device_name, employee_id, person_q, mapped, direction, branch_id
      */
     public function getAll($filters = [], $companyId = null) {
-        $query = 'SELECT mc.*, u.full_name
+        $query = 'SELECT mc.*, u.full_name, c.name AS company_name, b.name AS employee_branch_name,
+                  (SELECT GROUP_CONCAT(cb2.name ORDER BY cb2.name SEPARATOR ", ") FROM clock_devices cd2
+                   JOIN clock_device_branches cdb2 ON cdb2.clock_device_id = cd2.id AND cdb2.is_active = 1
+                   JOIN company_branches cb2 ON cb2.id = cdb2.branch_id WHERE cd2.external_name = mc.device_name) AS clock_branch_names
                   FROM marcaciones_cache mc
                   LEFT JOIN users u ON mc.user_id = u.id
+                  LEFT JOIN companies c ON c.id = u.company_id
+                  LEFT JOIN company_branches b ON b.id = u.branch_id
                   WHERE 1=1';
 
-        if ($companyId !== null) {
+        if ($companyId !== null && $this->clockScopeReady()) {
+            $query .= ' AND (u.company_id = :company_id OR (mc.user_id IS NULL AND EXISTS (
+                SELECT 1 FROM clock_devices cd JOIN clock_device_branches cdb ON cdb.clock_device_id = cd.id AND cdb.is_active = 1
+                JOIN company_branches cb ON cb.id = cdb.branch_id
+                WHERE cd.external_name = mc.device_name AND cb.company_id = :company_id
+            )))';
+        } elseif ($companyId !== null) {
             $query .= ' AND (mc.user_id IS NULL OR u.company_id = :company_id)';
         }
         if (!empty($filters['start_date'])) {
@@ -104,6 +123,14 @@ class MarcacionesCache {
         }
         if (!empty($filters['direction'])) {
             $query .= ' AND mc.direction = :direction';
+        }
+        if (!empty($filters['branch_id']) && $this->clockScopeReady()) {
+            $query .= ' AND (u.branch_id = :branch_id OR EXISTS (
+                SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = mc.user_id AND eba.branch_id = :branch_user_id
+            ) OR EXISTS (
+                SELECT 1 FROM clock_devices cd JOIN clock_device_branches cdb ON cdb.clock_device_id = cd.id AND cdb.is_active = 1
+                WHERE cd.external_name = mc.device_name AND cdb.branch_id = :branch_id
+            ))';
         }
         if (($filters['mapped'] ?? '') === 'yes') {
             $query .= ' AND mc.user_id IS NOT NULL';
@@ -138,6 +165,10 @@ class MarcacionesCache {
         if (!empty($filters['direction'])) {
             $this->db->bind(':direction', $filters['direction']);
         }
+        if (!empty($filters['branch_id']) && $this->clockScopeReady()) {
+            $this->db->bind(':branch_id', (int)$filters['branch_id']);
+            $this->db->bind(':branch_user_id', (int)$filters['branch_id']);
+        }
 
         return $this->db->resultSet();
     }
@@ -147,7 +178,13 @@ class MarcacionesCache {
                 FROM marcaciones_cache mc
                 LEFT JOIN users u ON mc.user_id = u.id
                 WHERE mc.device_name IS NOT NULL';
-        if ($companyId !== null) {
+        if ($companyId !== null && $this->clockScopeReady()) {
+            $sql .= ' AND (u.company_id = :company_id OR (mc.user_id IS NULL AND EXISTS (
+                SELECT 1 FROM clock_devices cd JOIN clock_device_branches cdb ON cdb.clock_device_id = cd.id AND cdb.is_active = 1
+                JOIN company_branches cb ON cb.id = cdb.branch_id
+                WHERE cd.external_name = mc.device_name AND cb.company_id = :company_id
+            )))';
+        } elseif ($companyId !== null) {
             $sql .= ' AND (mc.user_id IS NULL OR u.company_id = :company_id)';
         }
         $sql .= ' ORDER BY mc.device_name';
@@ -207,13 +244,37 @@ class MarcacionesCache {
                   AND mc.employee_id IS NOT NULL
                   AND TRIM(mc.employee_id) <> \'\'
                   AND DATE(mc.event_time) >= :since
-                GROUP BY mc.employee_id ORDER BY punch_count DESC, last_seen DESC';
+        ';
+        if ($companyId !== null && $this->clockScopeReady()) {
+            $sql .= ' AND EXISTS (SELECT 1 FROM clock_devices cd
+                JOIN clock_device_branches cdb ON cdb.clock_device_id = cd.id AND cdb.is_active = 1
+                JOIN company_branches cb ON cb.id = cdb.branch_id
+                WHERE cd.external_name = mc.device_name AND cb.company_id = :company_id)';
+        }
+        $sql .= ' GROUP BY mc.employee_id, mc.device_name ORDER BY punch_count DESC, last_seen DESC';
         $this->db->query($sql);
         $this->db->bind(':since', $since);
+        if ($companyId !== null && $this->clockScopeReady()) $this->db->bind(':company_id', (int)$companyId);
         return $this->db->resultSet();
     }
 
     public function countUnmappedLegajos($companyId = null, $sinceDays = 90) {
         return count($this->getUnmappedLegajosGrouped($companyId, $sinceDays));
+    }
+
+    /** Al mapear, relaciona también las fichadas importadas previamente de ese dispositivo. */
+    public function assignMappedUser($employeeId, $deviceName, $userId) {
+        $sql = 'UPDATE marcaciones_cache SET user_id = :user_id WHERE employee_id = :employee_id';
+        if (trim((string)$deviceName) !== '') $sql .= ' AND device_name = :device_name';
+        $this->db->query($sql);
+        $this->db->bind(':user_id', (int)$userId);
+        $this->db->bind(':employee_id', (string)$employeeId);
+        if (trim((string)$deviceName) !== '') $this->db->bind(':device_name', trim((string)$deviceName));
+        return $this->db->execute();
+    }
+
+    public function getDeviceNamesForUserDay($userId, $workDate) {
+        $this->db->query('SELECT DISTINCT device_name FROM marcaciones_cache WHERE user_id = ? AND DATE(event_time) = ? AND device_name IS NOT NULL ORDER BY device_name');
+        return array_map(function ($row) { return $row->device_name; }, $this->db->resultSet([(int)$userId, $workDate]));
     }
 }

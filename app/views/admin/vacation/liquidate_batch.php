@@ -20,8 +20,8 @@ $report = $data['report'] ?? null;
 <div class="alert alert-light border small mb-4">
     <strong>Qué hace esta acción</strong>
     <ul class="mb-0 mt-2">
-        <li>Crea o actualiza el período Oct–Sep indicado (ej. <strong>2026-2027</strong>) para cada empleado <strong>activo</strong> de la empresa.</li>
-        <li>Calcula automáticamente los días que <strong>corresponden</strong> según ingreso formal, convenio y antigüedad al 1 de octubre.</li>
+        <li>Crea o actualiza el año indicado (ej. <strong>2026</strong>) para cada empleado <strong>activo</strong> de la empresa.</li>
+        <li>Calcula automáticamente los días que <strong>corresponden</strong> según ingreso formal, convenio y antigüedad al 31 de diciembre.</li>
         <li><strong>No incluye</strong> usuarios <span class="badge bg-danger">Inactivos</span> (baja por despido, renuncia, etc.).</li>
         <li>Los días ya tomados de períodos anteriores se mantienen; el saldo total pendiente suma todos los períodos abiertos (FIFO al consumir).</li>
     </ul>
@@ -62,7 +62,7 @@ $report = $data['report'] ?? null;
                     <input type="text" name="period_label" class="form-control" required
                            value="<?php echo htmlspecialchars($data['suggested_period']); ?>"
                            placeholder="2026-2027">
-                    <small class="text-muted">Período Oct–Sep (CEC y similares).</small>
+                    <small class="text-muted">Año calendario, por ejemplo 2026.</small>
                 </div>
                 <div class="col-md-8">
                     <button type="submit" class="btn btn-primary">

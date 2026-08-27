@@ -3,8 +3,8 @@
 class CollectiveAgreement {
     private $db;
 
-    public function __construct() {
-        $this->db = new Database();
+    public function __construct($db = null) {
+        $this->db = $db instanceof Database ? $db : new Database();
     }
 
     public function isReady() {
@@ -59,21 +59,33 @@ class CollectiveAgreement {
         if (!empty($data['id'])) {
             $this->db->query('
                 UPDATE collective_agreements SET code = :code, name = :name, description = :description,
-                    period_start_month = :psm, period_start_day = :psd, is_active = :active
+                    jurisdiction = :jurisdiction, legal_reference = :legal_reference,
+                    period_start_month = :psm, period_start_day = :psd, notice_days = :notice_days,
+                    start_rule = :start_rule, split_policy = :split_policy,
+                    minimum_request_days = :minimum_request_days, is_active = :active
                 WHERE id = :id
             ');
             $this->db->bind(':id', (int)$data['id']);
         } else {
             $this->db->query('
-                INSERT INTO collective_agreements (code, name, description, period_start_month, period_start_day, is_active)
-                VALUES (:code, :name, :description, :psm, :psd, :active)
+                INSERT INTO collective_agreements
+                    (code,name,description,jurisdiction,legal_reference,period_start_month,period_start_day,
+                     notice_days,start_rule,split_policy,minimum_request_days,is_active)
+                VALUES (:code,:name,:description,:jurisdiction,:legal_reference,:psm,:psd,
+                        :notice_days,:start_rule,:split_policy,:minimum_request_days,:active)
             ');
         }
         $this->db->bind(':code', $data['code']);
         $this->db->bind(':name', $data['name']);
         $this->db->bind(':description', $data['description'] ?? null);
-        $this->db->bind(':psm', (int)($data['period_start_month'] ?? 10));
+        $this->db->bind(':jurisdiction', $data['jurisdiction'] ?? null);
+        $this->db->bind(':legal_reference', $data['legal_reference'] ?? null);
+        $this->db->bind(':psm', (int)($data['period_start_month'] ?? 1));
         $this->db->bind(':psd', (int)($data['period_start_day'] ?? 1));
+        $this->db->bind(':notice_days', (int)($data['notice_days'] ?? 30));
+        $this->db->bind(':start_rule', $data['start_rule'] ?? 'lct');
+        $this->db->bind(':split_policy', $data['split_policy'] ?? 'lct_7');
+        $this->db->bind(':minimum_request_days', (float)($data['minimum_request_days'] ?? 7));
         $this->db->bind(':active', !empty($data['is_active']) ? 1 : 0);
         return $this->db->execute();
     }
@@ -91,16 +103,18 @@ class CollectiveAgreement {
     public function insertRule(array $rule) {
         $this->db->query('
             INSERT INTO collective_agreement_rules
-                (agreement_id, min_months, max_months, days_entitled, day_count_mode, allows_split, allows_carryover, notes)
-            VALUES (:aid, :min_m, :max_m, :days, :mode, :split, :carry, :notes)
+                (agreement_id, min_months, max_months, days_entitled, day_count_mode, allows_split,
+                 allows_carryover, min_consecutive_days, notes)
+            VALUES (:aid, :min_m, :max_m, :days, :mode, :split, :carry, :min_days, :notes)
         ');
         $this->db->bind(':aid', (int)$rule['agreement_id']);
         $this->db->bind(':min_m', (int)$rule['min_months']);
         $this->db->bind(':max_m', isset($rule['max_months']) && $rule['max_months'] !== '' ? (int)$rule['max_months'] : null);
         $this->db->bind(':days', (int)$rule['days_entitled']);
-        $this->db->bind(':mode', $rule['day_count_mode'] ?? 'weekdays');
+        $this->db->bind(':mode', $rule['day_count_mode'] ?? 'calendar');
         $this->db->bind(':split', !empty($rule['allows_split']) ? 1 : 0);
         $this->db->bind(':carry', !empty($rule['allows_carryover']) ? 1 : 0);
+        $this->db->bind(':min_days', isset($rule['min_consecutive_days']) ? (int)$rule['min_consecutive_days'] : null);
         $this->db->bind(':notes', $rule['notes'] ?? null);
         return $this->db->execute();
     }

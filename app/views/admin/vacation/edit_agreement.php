@@ -41,24 +41,34 @@ $id = $isNew ? 0 : (int)$ag->id;
                         <textarea name="description" class="form-control form-control-sm" rows="2"><?php echo htmlspecialchars($ag->description ?? ''); ?></textarea>
                     </div>
                     <div class="row g-2 mb-2">
+                        <div class="col-6"><label class="form-label small">Jurisdicción</label><input name="jurisdiction" class="form-control form-control-sm" value="<?php echo htmlspecialchars($ag->jurisdiction ?? ''); ?>"></div>
+                        <div class="col-6"><label class="form-label small">Referencia legal</label><input name="legal_reference" class="form-control form-control-sm" value="<?php echo htmlspecialchars($ag->legal_reference ?? ''); ?>"></div>
+                    </div>
+                    <div class="row g-2 mb-2">
                         <div class="col-6">
                             <label class="form-label small">Mes inicio período</label>
                             <select name="period_start_month" class="form-select form-select-sm">
                                 <?php
                                 $months = [1=>'Enero',2=>'Feb',3=>'Mar',4=>'Abr',5=>'May',6=>'Jun',7=>'Jul',8=>'Ago',9=>'Sep',10=>'Oct',11=>'Nov',12=>'Dic'];
-                                $sel = (int)($ag->period_start_month ?? 10);
+                                $sel = (int)($ag->period_start_month ?? 1);
                                 foreach ($months as $n => $label):
                                 ?>
                                 <option value="<?php echo $n; ?>" <?php echo $sel === $n ? 'selected' : ''; ?>><?php echo $label; ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <small class="text-muted">CEC = octubre (10)</small>
+                            <small class="text-muted">Vacaciones: enero (1)</small>
                         </div>
                         <div class="col-6">
                             <label class="form-label small">Día inicio</label>
                             <input type="number" name="period_start_day" min="1" max="28" class="form-control form-control-sm"
                                    value="<?php echo (int)($ag->period_start_day ?? 1); ?>">
                         </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-4"><label class="form-label small">Aviso (días)</label><input type="number" name="notice_days" min="0" class="form-control form-control-sm" value="<?php echo (int)($ag->notice_days ?? 30); ?>"></div>
+                        <div class="col-4"><label class="form-label small">Mínimo solicitud</label><input type="number" step="0.5" min="1" name="minimum_request_days" class="form-control form-control-sm" value="<?php echo htmlspecialchars($ag->minimum_request_days ?? 7); ?>"></div>
+                        <div class="col-4"><label class="form-label small">Inicio</label><select name="start_rule" class="form-select form-select-sm"><option value="lct" <?php echo ($ag->start_rule??'lct')==='lct'?'selected':''; ?>>LCT</option><option value="monday_or_next_business" <?php echo ($ag->start_rule??'')==='monday_or_next_business'?'selected':''; ?>>Lunes/sig. hábil</option></select></div>
+                        <div class="col-12"><label class="form-label small">Fraccionamiento</label><select name="split_policy" class="form-select form-select-sm"><option value="lct_7" <?php echo ($ag->split_policy??'lct_7')==='lct_7'?'selected':''; ?>>Tramos mínimos de 7 días</option><option value="soecra_14_plus_7" <?php echo ($ag->split_policy??'')==='soecra_14_plus_7'?'selected':''; ?>>SOECRA 14 + remanente 7</option></select></div>
                     </div>
                     <?php if (!$isNew): ?>
                     <div class="form-check mb-2">
@@ -90,7 +100,7 @@ $id = $isNew ? 0 : (int)$ag->id;
                         <td><?php echo (int)$r->min_months; ?></td>
                         <td><?php echo $r->max_months !== null ? (int)$r->max_months : '∞'; ?></td>
                         <td><strong><?php echo (int)$r->days_entitled; ?></strong></td>
-                        <td><?php echo $r->day_count_mode === 'calendar' ? 'Corridos' : 'Hábiles'; ?></td>
+                        <td><?php echo htmlspecialchars($data['day_count_modes'][$r->day_count_mode] ?? $r->day_count_mode); ?></td>
                         <td class="small"><?php echo htmlspecialchars($r->notes ?? ''); ?></td>
                     </tr>
                     <?php endforeach; endif; ?>
@@ -129,6 +139,10 @@ $id = $isNew ? 0 : (int)$ag->id;
                         <div class="col-12">
                             <label class="form-label small">Notas</label>
                             <input type="text" name="notes" class="form-control form-control-sm" placeholder="Ej. 5 a 9 años de antigüedad">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Mínimo tramo</label>
+                            <input type="number" name="min_consecutive_days" class="form-control form-control-sm" min="1" value="7">
                         </div>
                         <div class="col-12">
                             <div class="form-check">

@@ -70,7 +70,7 @@ class AttendanceDaySummary {
                 COUNT(*) AS total_rows,
                 SUM(status = "ok") AS count_ok,
                 SUM(status = "on_leave") AS count_leave,
-                SUM(status NOT IN ("ok", "on_leave")) AS count_alerts
+                SUM(status NOT IN ("ok", "on_leave", "flexible", "no_clock")) AS count_alerts
             FROM attendance_day_summary
             WHERE company_id = :company_id AND work_date = :work_date');
         $this->db->bind(':company_id', $companyId);
@@ -84,7 +84,7 @@ class AttendanceDaySummary {
             JOIN users u ON ads.user_id = u.id
             WHERE ads.company_id = :company_id
               AND ads.work_date = :work_date
-              AND ads.status NOT IN ("ok", "on_leave")
+              AND ads.status NOT IN ("ok", "on_leave", "flexible", "no_clock")
             ORDER BY FIELD(ads.status, "no_show", "missing_out", "late", "early_leave", "incomplete", "unplanned_clocking"),
                      u.full_name ASC
             LIMIT ' . (int)$limit);
@@ -100,7 +100,7 @@ class AttendanceDaySummary {
             WHERE ads.company_id = :company_id AND ads.work_date = :work_date';
 
         if ($statusFilter === 'alerts') {
-            $sql .= ' AND ads.status NOT IN ("ok", "on_leave")';
+            $sql .= ' AND ads.status NOT IN ("ok", "on_leave", "flexible", "no_clock")';
         } elseif ($statusFilter !== '' && $statusFilter !== 'all') {
             $sql .= ' AND ads.status = :status';
         }

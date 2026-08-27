@@ -3,6 +3,8 @@
 function attendanceStatusMeta($status) {
     $map = [
         'ok'                 => ['label' => 'Correcto',           'badge' => 'success',  'icon' => 'fa-check-circle'],
+        'flexible'           => ['label' => 'Control flexible',   'badge' => 'info',     'icon' => 'fa-route'],
+        'no_clock'           => ['label' => 'Sin reloj',          'badge' => 'secondary','icon' => 'fa-user-slash'],
         'late'               => ['label' => 'Llegada tarde',      'badge' => 'warning',  'icon' => 'fa-clock'],
         'early_leave'        => ['label' => 'Salida anticipada',  'badge' => 'warning',  'icon' => 'fa-sign-out-alt'],
         'missing_out'        => ['label' => 'Sin salida',         'badge' => 'danger',   'icon' => 'fa-exclamation-triangle'],

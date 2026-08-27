@@ -147,3 +147,11 @@
     margin-bottom: 1rem;
     border-radius: 8px;
 }
+
+.announcement-modal-video {
+    width: 100%;
+    max-height: 320px;
+    background: #000;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+}

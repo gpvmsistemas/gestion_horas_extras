@@ -3,9 +3,21 @@
 
 if (!function_exists('navIsActive')) {
     function navIsActive(...$paths) {
-        $current = $_SERVER['REQUEST_URI'];
+        $current = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
         foreach ($paths as $path) {
-            if ($path !== '' && strpos($current, $path) !== false) return 'active';
+            if ($path === '') continue;
+            $normalized = '/' . trim($path, '/');
+            if ($current === $normalized || strpos($current, $normalized . '/') === 0) return 'active';
+        }
+        return '';
+    }
+}
+
+if (!function_exists('navIsExactActive')) {
+    function navIsExactActive(...$paths) {
+        $current = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+        foreach ($paths as $path) {
+            if ($current === '/' . trim($path, '/')) return 'active';
         }
         return '';
     }
@@ -100,31 +112,67 @@ $_brandLogoUrl = function_exists('company_brand_logo_url') ? company_brand_logo_
 $_brandName = function_exists('company_brand_display_name') ? company_brand_display_name() : (defined('SITENAME') ? SITENAME : 'RRHH');
 $_brandSubtitle = function_exists('company_brand_subtitle') ? company_brand_subtitle() : 'Gestión de RRHH';
 $_bodyBrandClass = function_exists('company_brand_body_class') ? company_brand_body_class() : '';
+$_brandCssVariables = function_exists('company_brand_css_variables') ? company_brand_css_variables() : '';
 $_usesCpNav = function_exists('current_user_uses_casapav_tasks') && current_user_uses_casapav_tasks();
+// Suite P&M: la organización Moderna pisa la marca por empresa
+// (nombre, logo, tema de colores) y unifica: sin selector de empresa.
+if (function_exists('org_brand_name')) {
+    $_brandName = org_brand_name($_brandName);
+    $_brandSubtitle = org_brand_subtitle($_brandSubtitle);
+    $_brandLogoUrl = org_brand_logo_url($_brandLogoUrl);
+    $_bodyBrandClass = trim($_bodyBrandClass . ' ' . org_body_class());
+}
+$_orgHidesPaviottiModules = function_exists('org_hides_paviotti_business_modules') && org_hides_paviotti_business_modules();
+$_orgIsModerna = function_exists('org_is_moderna') && org_is_moderna();
+// Título de pestaña por ruta; la base de marca depende de la organización.
+$_siteTitleBase = $_orgIsModerna ? 'Suite Red Farmacias Moderna' : SITENAME;
+$_pageTitles = [
+    '/admin/dashboard' => 'Dashboard', '/admin/editUser' => 'Editar usuario', '/admin/editCompany' => 'Editar empresa', '/admin/companies' => 'Empresas', '/admin/users' => 'Usuarios',
+    '/admin/calendar' => 'Calendario', '/admin/weeklyPlanner' => 'Planificador semanal',
+    '/admin/attendance' => 'Asistencia', '/admin/requests' => 'Solicitudes',
+    '/registroHoras/vistaGeneral' => 'Registro de Horas', '/registroHoras/carga' => 'Carga de horarios',
+    '/registroHoras/horarios' => 'Horarios por empleado', '/registroHoras/duplicar' => 'Duplicación de horarios',
+    '/registroHoras/cargaMasiva' => 'Carga masiva',
+    '/employee/index' => 'Inicio', '/employee/profile' => 'Mi perfil',
+    '/employee/misHorarios' => 'Mis horarios', '/employee/dashboard' => 'Horas extras',
+];
+$_currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$_pageTitle = $_siteTitleBase;
+foreach ($_pageTitles as $_titlePath => $_titleLabel) {
+    if ($_currentPath === $_titlePath || strpos($_currentPath, $_titlePath . '/') === 0) {
+        $_pageTitle = $_titleLabel . ' · ' . ($_orgIsModerna ? 'Suite Red Farmacias Moderna' : $_brandName);
+        break;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo SITENAME; ?></title>
+    <title><?php echo htmlspecialchars($_pageTitle, ENT_QUOTES, 'UTF-8'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/main.min.css' rel='stylesheet' />
     <link rel="stylesheet" href="<?php echo URLROOT; ?>/css/style.css">
+    <?php if ($_brandCssVariables !== ''): ?><style>:root{<?php echo htmlspecialchars($_brandCssVariables, ENT_QUOTES, 'UTF-8'); ?>}</style><?php endif; ?>
     <?php if (isLoggedIn() && function_exists('notifications_is_ready') && notifications_is_ready()): ?>
     <link rel="stylesheet" href="<?php echo URLROOT; ?>/css/notifications.css">
     <meta name="csrf-token" content="<?php echo htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
     <?php endif; ?>
 </head>
-<body<?php
-echo isLoggedIn()
-    ? ($_bodyBrandClass !== '' ? ' class="' . htmlspecialchars($_bodyBrandClass) . '"' : '')
-    : ' class="auth-page"';
-?>>
+<body class="<?php
+$_bodyClasses = [];
+if (!isLoggedIn()) {
+    $_bodyClasses[] = 'auth-page';
+} else {
+    $_bodyClasses[] = isStaffAdmin() ? 'app-staff' : 'app-employee';
+    if ($_bodyBrandClass !== '') $_bodyClasses[] = $_bodyBrandClass;
+}
+echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
+?>">
 
 <?php if(isLoggedIn()): ?>
 
@@ -143,7 +191,7 @@ echo isLoggedIn()
                 <span class="brand-subtitle"><?php echo htmlspecialchars($_brandSubtitle); ?></span>
             </div>
         </a>
-        <button class="sidebar-close-btn d-lg-none" id="sidebarCloseBtn" aria-label="Cerrar menú">
+        <button class="sidebar-close-btn d-lg-none" id="sidebarCloseBtn" aria-label="Cerrar menú" aria-controls="appSidebar">
             <i class="fas fa-times"></i>
         </button>
     </div>
@@ -189,12 +237,37 @@ echo isLoggedIn()
                     <span class="sidebar-badge"><?php echo (int)$_pendingRequestsCount; ?></span>
                 <?php endif; ?>
             </a>
-            <a href="<?php echo URLROOT; ?>/admin/attendance"
-               class="sidebar-nav-link <?php echo navIsActive('/admin/attendance'); ?>">
+            <a href="<?php echo URLROOT; ?>/admin/controlAsistencia"
+               class="sidebar-nav-link <?php echo navIsActive('/admin/controlAsistencia', '/admin/attendance'); ?>">
                 <i class="fas fa-fw fa-user-check"></i><span>Asistencia</span>
             </a>
 
             <?php else: ?>
+
+            <?php if (function_exists('org_hours_registry_enabled') && org_hours_registry_enabled()): ?>
+            <div class="sidebar-section-title">Registro de Horas</div>
+
+            <a href="<?php echo URLROOT; ?>/registroHoras/vistaGeneral"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/vistaGeneral'); ?>">
+                <i class="fas fa-fw fa-table"></i><span>Vista general</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/carga"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/carga'); ?>">
+                <i class="fas fa-fw fa-clock"></i><span>Carga de horarios</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/horarios"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/horarios'); ?>">
+                <i class="fas fa-fw fa-calendar-week"></i><span>Horarios por empleado</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/duplicar"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/duplicar'); ?>">
+                <i class="fas fa-fw fa-copy"></i><span>Duplicación</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/registroHoras/cargaMasiva"
+               class="sidebar-nav-link <?php echo navIsActive('/registroHoras/cargaMasiva'); ?>">
+                <i class="fas fa-fw fa-layer-group"></i><span>Carga masiva</span>
+            </a>
+            <?php endif; ?>
 
             <div class="sidebar-section-title">Personal</div>
 
@@ -231,10 +304,21 @@ echo isLoggedIn()
                 <i class="fas fa-fw fa-star"></i><span>Feriados</span>
             </a>
 
+            <div class="sidebar-section-title">RRHH integral</div>
+            <a href="<?php echo URLROOT; ?>/admin/hrRoadmap" class="sidebar-nav-link <?php echo navIsActive('/admin/hrRoadmap'); ?>"><i class="fas fa-fw fa-calendar-week"></i><span>Roadmap RRHH</span></a>
+            <?php if(access_can('attendance.prepare')):?><a href="<?php echo URLROOT; ?>/admin/attendanceClosures" class="sidebar-nav-link <?php echo navIsActive('/admin/attendanceClosures'); ?>"><i class="fas fa-fw fa-lock"></i><span>Cierres de asistencia</span></a><?php endif; ?>
+            <?php if(access_can('expirations.manage')):?><a href="<?php echo URLROOT; ?>/expirations" class="sidebar-nav-link <?php echo navIsActive('/expirations'); ?>"><i class="fas fa-fw fa-hourglass-half"></i><span>Vencimientos</span></a><?php endif; ?>
+            <?php if(access_can('ppe.issue')):?><a href="<?php echo URLROOT; ?>/ppe" class="sidebar-nav-link <?php echo navIsActive('/ppe'); ?>"><i class="fas fa-fw fa-hard-hat"></i><span>EPP y ropa</span></a><?php endif; ?>
+            <?php if(access_can('assets.assign')):?><a href="<?php echo URLROOT; ?>/assets" class="sidebar-nav-link <?php echo navIsActive('/assets'); ?>"><i class="fas fa-fw fa-laptop"></i><span>Activos</span></a><?php endif; ?>
+            <?php if(access_can('recruiting.review') && org_recruiting_enabled()):?><a href="<?php echo URLROOT; ?>/recruiting" class="sidebar-nav-link <?php echo navIsActive('/recruiting'); ?>"><i class="fas fa-fw fa-user-plus"></i><span>Reclutamiento</span></a><?php endif; ?>
+            <?php if(access_can('performance.evaluate')):?><a href="<?php echo URLROOT; ?>/performance" class="sidebar-nav-link <?php echo navIsActive('/performance'); ?>"><i class="fas fa-fw fa-chart-line"></i><span>Desempeño</span></a><?php endif; ?>
+            <?php if(access_can('metrics.operational')||access_can('metrics.strategic')):?><a href="<?php echo URLROOT; ?>/hrMetrics" class="sidebar-nav-link <?php echo navIsActive('/hrMetrics'); ?>"><i class="fas fa-fw fa-chart-pie"></i><span>KPIs RRHH</span></a><?php endif; ?>
+            <?php if(access_can('audit.view')):?><a href="<?php echo URLROOT; ?>/audit" class="sidebar-nav-link <?php echo navIsActive('/audit'); ?>"><i class="fas fa-fw fa-shield-alt"></i><span>Auditoría</span></a><?php endif; ?>
+
             <?php if (function_exists('learning_is_ready') && learning_is_ready()): ?>
-            <div>Capacitación</div>
+            <div class="sidebar-section-title">Capacitación</div>
             <a href="<?php echo URLROOT; ?>/trainingAdmin/courses"
-               class="sidebar-nav-link <?php echo navIsActive('/trainingAdmin'); ?>">
+               class="sidebar-nav-link <?php echo navIsExactActive('/trainingAdmin', '/trainingAdmin/courses'); ?>">
                 <i class="fas fa-fw fa-graduation-cap"></i><span>Cursos</span>
             </a>
             <a href="<?php echo URLROOT; ?>/trainingAdmin/areas"
@@ -261,7 +345,7 @@ echo isLoggedIn()
             <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (function_exists('prode_is_ready') && prode_is_ready()): ?>
+            <?php if (function_exists('prode_is_ready') && prode_is_ready() && !$_orgHidesPaviottiModules): ?>
             <div class="sidebar-section-title">PRODE</div>
             <a href="<?php echo URLROOT; ?>/prodeAdmin/ranking"
                class="sidebar-nav-link <?php echo navIsActive('/prodeAdmin'); ?>">
@@ -271,10 +355,12 @@ echo isLoggedIn()
 
             <div class="sidebar-section-title">Operaciones</div>
 
+            <?php if (!$_orgHidesPaviottiModules): ?>
             <a href="<?php echo URLROOT; ?>/ecofarma/index"
                class="sidebar-nav-link <?php echo navIsActive('/ecofarma'); ?>">
                 <i class="fas fa-fw fa-pills"></i><span>Comisiones Ecofarma</span>
             </a>
+            <?php endif; ?>
             <a href="<?php echo URLROOT; ?>/admin/requests"
                class="sidebar-nav-link <?php echo navIsActive('/admin/requests', '/admin/approveRequest', '/admin/rejectRequest', '/admin/editRequest'); ?>">
                 <i class="fas fa-fw fa-inbox"></i>
@@ -304,6 +390,7 @@ echo isLoggedIn()
             </a>
             <?php endif; ?>
             <?php if (function_exists('cp_tasks_is_ready') && cp_tasks_is_ready()
+                && !$_orgHidesPaviottiModules
                 && function_exists('cp_staff_can_view') && cp_staff_can_view()
                 && function_exists('company_uses_casapav_tasks') && company_uses_casapav_tasks(adminCompanyId())): ?>
             <a href="<?php echo URLROOT; ?>/cpTaskAdmin/pending"
@@ -332,17 +419,18 @@ echo isLoggedIn()
 
             <div class="sidebar-section-title">Sistema</div>
 
+            <?php if (!$_orgIsModerna): // Infraestructura de relojes/multiempresa de Paviotti; Moderna tendrá su propio sync (CrossChex) ?>
             <a href="<?php echo URLROOT; ?>/admin/sync"
                class="sidebar-nav-link <?php echo navIsActive('/admin/sync', '/admin/runApiSync'); ?>">
                 <i class="fas fa-fw fa-sync-alt"></i><span>Sincronización</span>
             </a>
-            <a href="<?php echo URLROOT; ?>/admin/mapeoApi"
-               class="sidebar-nav-link <?php echo navIsActive('/admin/mapeoApi', '/admin/saveMappingFromApi', '/admin/deleteMappingFromApi'); ?>">
-                <i class="fas fa-fw fa-link"></i><span>Mapeo de Relojes</span>
-            </a>
             <a href="<?php echo URLROOT; ?>/admin/mapeoIncompleto"
-               class="sidebar-nav-link <?php echo navIsActive('/admin/mapeoIncompleto'); ?>">
-                <i class="fas fa-fw fa-unlink"></i><span>Mapeo incompleto</span>
+               class="sidebar-nav-link <?php echo navIsActive('/admin/mapeoIncompleto', '/admin/mapeoApi', '/admin/saveMappingFromApi', '/admin/deleteMappingFromApi'); ?>">
+                <i class="fas fa-fw fa-link"></i><span>Pendientes de identificación</span>
+            </a>
+            <a href="<?php echo URLROOT; ?>/admin/clockDevices"
+               class="sidebar-nav-link <?php echo navIsActive('/admin/clockDevices', '/admin/saveClockDevice'); ?>">
+                <i class="fas fa-fw fa-stopwatch"></i><span>Relojes y sucursales</span>
             </a>
             <a href="<?php echo URLROOT; ?>/admin/marcacionesTodas"
                class="sidebar-nav-link <?php echo navIsActive('/admin/marcacionesTodas', '/admin/marcaciones', '/admin/clockingsReport'); ?>">
@@ -352,6 +440,7 @@ echo isLoggedIn()
                class="sidebar-nav-link <?php echo navIsActive('/admin/companies'); ?>">
                 <i class="fas fa-fw fa-building"></i><span>Empresas</span>
             </a>
+            <?php endif; ?>
             <?php if (function_exists('notifications_is_ready') && notifications_is_ready()): ?>
             <a href="<?php echo URLROOT; ?>/notificationsAdmin"
                class="sidebar-nav-link <?php echo navIsActive('/notificationsAdmin'); ?>">
@@ -423,6 +512,7 @@ echo isLoggedIn()
                class="sidebar-nav-link <?php echo navIsActive('/employee/profile'); ?>">
                 <i class="fas fa-fw fa-user"></i><span>Mi perfil</span>
             </a>
+            <a href="<?php echo URLROOT; ?>/employee/hrDocuments" class="sidebar-nav-link <?php echo navIsActive('/employee/hrDocuments'); ?>"><i class="fas fa-fw fa-box-open"></i><span>Bienes y constancias</span></a>
             <?php if (function_exists('employee_portal_can') && employee_portal_can('suggestions')): ?>
             <a href="<?php echo URLROOT; ?>/suggestion/index"
                class="sidebar-nav-link <?php echo navIsActive('/suggestion/index'); ?>">
@@ -435,7 +525,8 @@ echo isLoggedIn()
                 <i class="fas fa-fw fa-poll"></i><span>Encuestas</span>
             </a>
             <?php endif; ?>
-            <?php if (function_exists('notifications_is_ready') && notifications_is_ready() && employee_portal_can('pay_stubs')): ?>
+            <?php if (function_exists('notifications_is_ready') && notifications_is_ready() && employee_portal_can('pay_stubs')
+                && !(function_exists('org_hides_pay_stubs') && org_hides_pay_stubs())): ?>
             <a href="<?php echo URLROOT; ?>/employee/payStubs"
                class="sidebar-nav-link <?php echo navIsActive('/employee/payStubs', '/employee/payStubSign'); ?>">
                 <i class="fas fa-fw fa-file-invoice-dollar"></i><span>Mis recibos</span>
@@ -463,9 +554,23 @@ echo isLoggedIn()
     </div>
 
     <div class="sidebar-footer">
-        <a href="<?php echo URLROOT; ?>/login/logout" class="sidebar-logout-btn">
-            <i class="fas fa-fw fa-sign-out-alt"></i><span>Cerrar Sesión</span>
-        </a>
+        <?php // Vuelta al modo Paviotti mientras el simulador (demo) está activo; desaparece con employee_group real. ?>
+        <?php if (function_exists('org_simulator_available') && org_simulator_available() && $_orgIsModerna): ?>
+        <form method="post" action="<?php echo URLROOT; ?>/registroHoras/setOrg" class="mb-1">
+            <?php echo csrf_field(); ?>
+            <input type="hidden" name="org_group" value="paviotti">
+            <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+            <button type="submit" class="sidebar-logout-btn w-100" style="background:none;border:0;text-align:left;">
+                <i class="fas fa-fw fa-arrow-right-arrow-left"></i><span>Vista Paviotti (demo)</span>
+            </button>
+        </form>
+        <?php endif; ?>
+        <form method="post" action="<?php echo URLROOT; ?>/login/logout" class="m-0">
+            <?php echo csrf_field(); ?>
+            <button type="submit" class="sidebar-logout-btn w-100 border-0">
+                <i class="fas fa-fw fa-sign-out-alt"></i><span>Cerrar sesión</span>
+            </button>
+        </form>
     </div>
 </aside>
 <!-- Overlay oscuro para mobile -->
@@ -480,7 +585,7 @@ echo isLoggedIn()
         <div class="topbar-left">
             <button class="topbar-toggle d-lg-none"
                     id="sidebarMobileToggle"
-                    aria-label="Abrir menú">
+                    aria-label="Abrir menú" aria-controls="appSidebar" aria-expanded="false">
                 <i class="fas fa-bars"></i>
             </button>
             <button class="topbar-toggle d-none d-lg-flex"
@@ -489,25 +594,98 @@ echo isLoggedIn()
             </button>
         </div>
         <div class="topbar-right">
-            <?php if (hasRole('admin')):
-                $_companySwitcher = (new Company())->getAllCompanies();
-                $_activeCompanyId = (int)($_SESSION['user_company_id'] ?? 0);
-            ?>
-            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form d-none d-md-flex align-items-center me-2">
+            <?php // Simulador de organización (demo): solo mientras no exista companies.organization_group,
+                  // que habilita el selector de Contexto real de más abajo. Oculto en vista Moderna. ?>
+            <?php if (function_exists('org_simulator_available') && org_simulator_available() && !$_orgIsModerna
+                && !(function_exists('org_company_group_ready') && org_company_group_ready())): ?>
+            <form method="post" action="<?php echo URLROOT; ?>/registroHoras/setOrg" class="topbar-company-form d-none d-md-flex align-items-center me-2" title="Simulador de organización (fase maqueta): define qué vista de la Suite P&amp;M se muestra">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
-                <label class="text-muted small me-1 mb-0" for="topbarCompanySelect">Empresa</label>
-                <select name="company_id" id="topbarCompanySelect" class="form-select form-select-sm" style="max-width:200px" onchange="this.form.submit()">
+                <label class="text-muted small me-1 mb-0" for="topbarOrgSelect">Organización</label>
+                <select name="org_group" id="topbarOrgSelect" class="form-select form-select-sm" style="max-width:170px" onchange="this.form.submit()">
+                    <option value="paviotti" <?php echo org_current_group() === 'paviotti' ? 'selected' : ''; ?>>Paviotti/Ecofarma</option>
+                    <option value="moderna" <?php echo org_current_group() === 'moderna' ? 'selected' : ''; ?>>Moderna</option>
+                </select>
+                <span class="badge bg-secondary ms-1" title="Se reemplaza por users.employee_group al integrar">demo</span>
+            </form>
+            <?php endif; ?>
+            <?php if (isLoggedIn() && function_exists('access_control_ready') && access_control_ready()):
+                $_accessScopes = (new AccessControl())->getScopesForUser((int)$_SESSION['user_id'], true);
+                $_activeScopeId = (int)($_SESSION['access_scope_id'] ?? 0);
+                if (count($_accessScopes) > 1): ?>
+            <form method="post" action="<?php echo URLROOT; ?>/access/setContext" class="topbar-company-form d-none d-md-flex align-items-center me-2" title="Contexto de trabajo activo">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                <select name="scope_id" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Cambiar contexto de trabajo">
+                    <?php foreach ($_accessScopes as $_scope): ?><option value="<?php echo (int)$_scope->id; ?>" <?php echo (int)$_scope->id === $_activeScopeId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_scope->company_name . (!empty($_scope->branch_name) ? ' · ' . $_scope->branch_name : '') . ' · ' . (AccessControl::roles()[$_scope->access_role] ?? $_scope->access_role)); ?></option><?php endforeach; ?>
+                </select>
+            </form>
+            <?php endif; endif; ?>
+            <?php if (hasRole('admin')):
+                $_companyModel = new Company();
+                $_companySwitcher = $_companyModel->getAllCompanies();
+                $_activeCompanyId = (int)($_SESSION['user_company_id'] ?? 0);
+                $_activeBranchId = function_exists('adminBranchId') ? adminBranchId() : 0;
+                $_activeGroup = 'paviotti';
+                $_topbarBranches = [];
+                foreach ($_companySwitcher as $_co) {
+                    if ((int)$_co->id === $_activeCompanyId) $_activeGroup = $_co->organization_group ?? 'paviotti';
+                    foreach ($_companyModel->getBranches((int)$_co->id, false) as $_branch) $_topbarBranches[] = $_branch;
+                }
+                // Suite P&M: el selector queda bloqueado al grupo del usuario logueado
+                // (RRHH de Moderna solo navega empresas/sucursales de Moderna, y viceversa).
+                $_orgLockedGroup = function_exists('org_locked_group') ? org_locked_group() : '';
+                if ($_orgLockedGroup !== '') {
+                    $_companySwitcher = array_values(array_filter($_companySwitcher, function ($_co) use ($_orgLockedGroup) {
+                        return ($_co->organization_group ?? 'paviotti') === $_orgLockedGroup;
+                    }));
+                    $_activeGroup = $_orgLockedGroup;
+                    $_topbarBranches = array_values(array_filter($_topbarBranches, function ($_b) use ($_companySwitcher) {
+                        foreach ($_companySwitcher as $_co) { if ((int)$_co->id === (int)$_b->company_id) return true; }
+                        return false;
+                    }));
+                }
+            ?>
+            <?php if ($_orgLockedGroup !== '' || !$_orgIsModerna): // sin grupo definido (sesión vieja), Moderna no muestra selectores ?>
+            <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-company-form topbar-context-form d-none d-xl-flex align-items-end me-1 me-md-2" title="Contexto operativo: empresa y sucursal de tu organización">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                <div><label class="topbar-company-label" for="topbarGroupSelect">Grupo</label><select id="topbarGroupSelect" class="form-select form-select-sm" data-context-group aria-label="Grupo de tu organización" <?php echo $_orgLockedGroup !== '' ? 'title="Tu organización"' : ''; ?>><?php if ($_orgLockedGroup !== ''): ?><option value="<?php echo $_orgLockedGroup; ?>" selected><?php echo strtoupper($_orgLockedGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?></option><?php else: ?><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option><?php endif; ?></select></div>
+                <div><label class="topbar-company-label" for="topbarCompanySelect">Empresa</label><select name="company_id" id="topbarCompanySelect" class="form-select form-select-sm" data-context-company aria-label="Cambiar empresa activa">
                     <?php if ($_activeCompanyId <= 0): ?>
                     <option value="" selected disabled>Elegir…</option>
                     <?php endif; ?>
+                    <?php $_allMode = function_exists('adminAllCompaniesActive') && adminAllCompaniesActive(); ?>
+                    <?php if (!isSupervisor() && $_activeCompanyId > 0): ?>
+                    <option value="all" <?php echo $_allMode ? 'selected' : ''; ?>>— Todas las empresas</option>
+                    <?php endif; ?>
                     <?php foreach ($_companySwitcher as $_co): ?>
-                    <option value="<?php echo (int)$_co->id; ?>" <?php echo (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>>
+                    <option value="<?php echo (int)$_co->id; ?>" data-group="<?php echo htmlspecialchars($_co->organization_group ?? 'paviotti'); ?>" <?php echo !$_allMode && (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>>
                         <?php echo htmlspecialchars($_co->name); ?>
                     </option>
                     <?php endforeach; ?>
-                </select>
+                </select></div>
+                <div><label class="topbar-company-label" for="topbarBranchSelect">Sucursal</label><select name="branch_id" id="topbarBranchSelect" class="form-select form-select-sm" data-context-branch aria-label="Filtrar por sucursal"><option value="0">Todas</option><?php foreach ($_topbarBranches as $_branch): ?><option value="<?php echo (int)$_branch->id; ?>" data-company="<?php echo (int)$_branch->company_id; ?>" <?php echo (int)$_branch->id === $_activeBranchId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_branch->name); ?></option><?php endforeach; ?></select></div>
+                <button type="submit" class="btn btn-sm btn-primary topbar-context-apply" aria-label="Aplicar contexto"><i class="fas fa-check"></i></button>
             </form>
+            <div class="dropdown topbar-mobile-context d-xl-none">
+                <button type="button" class="topbar-mobile-context-btn dropdown-toggle" id="mobileContextButton" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Cambiar grupo, empresa o sucursal">
+                    <i class="fas fa-building"></i><span class="d-none d-sm-inline">Contexto</span>
+                </button>
+                <div class="dropdown-menu dropdown-menu-end topbar-mobile-context-menu" aria-labelledby="mobileContextButton">
+                    <div class="mobile-context-head"><span><i class="fas fa-sliders-h"></i></span><div><strong>Contexto de trabajo</strong><small><?php echo htmlspecialchars($_activeGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?> · <?php echo htmlspecialchars($_brandName); ?></small></div></div>
+                    <form method="post" action="<?php echo URLROOT; ?>/admin/setCompany" class="topbar-context-form mobile-context-form">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="return_url" value="<?php echo htmlspecialchars((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? '') . ($_SERVER['REQUEST_URI'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                        <div><label class="form-label" for="mobileGroupSelect">Grupo</label><select id="mobileGroupSelect" class="form-select" data-context-group><?php if ($_orgLockedGroup !== ''): ?><option value="<?php echo $_orgLockedGroup; ?>" selected><?php echo strtoupper($_orgLockedGroup === 'moderna' ? 'MODERNA' : 'PAVIOTTI'); ?></option><?php else: ?><option value="paviotti" <?php echo $_activeGroup === 'paviotti' ? 'selected' : ''; ?>>PAVIOTTI</option><option value="moderna" <?php echo $_activeGroup === 'moderna' ? 'selected' : ''; ?>>MODERNA</option><?php endif; ?></select></div>
+                        <div><label class="form-label" for="mobileCompanySelect">Empresa</label><select name="company_id" id="mobileCompanySelect" class="form-select" data-context-company><?php if (!isSupervisor() && $_activeCompanyId > 0): ?><option value="all" <?php echo $_allMode ? 'selected' : ''; ?>>— Todas las empresas</option><?php endif; ?><?php foreach ($_companySwitcher as $_co): ?><option value="<?php echo (int)$_co->id; ?>" data-group="<?php echo htmlspecialchars($_co->organization_group ?? 'paviotti'); ?>" <?php echo !$_allMode && (int)$_co->id === $_activeCompanyId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_co->name); ?></option><?php endforeach; ?></select></div>
+                        <div><label class="form-label" for="mobileBranchSelect">Sucursal</label><select name="branch_id" id="mobileBranchSelect" class="form-select" data-context-branch><option value="0">Todas</option><?php foreach ($_topbarBranches as $_branch): ?><option value="<?php echo (int)$_branch->id; ?>" data-company="<?php echo (int)$_branch->company_id; ?>" <?php echo (int)$_branch->id === $_activeBranchId ? 'selected' : ''; ?>><?php echo htmlspecialchars($_branch->name); ?></option><?php endforeach; ?></select></div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-check me-2"></i>Aplicar contexto</button>
+                    </form>
+                </div>
+            </div>
+            <script>(()=>{document.querySelectorAll('.topbar-context-form').forEach(form=>{const group=form.querySelector('[data-context-group]'),company=form.querySelector('[data-context-company]'),branch=form.querySelector('[data-context-branch]');if(!group||!company||!branch)return;const sync=()=>{const g=group.value;[...company.options].forEach(o=>{if(!o.value||o.value==='all')return;const visible=o.dataset.group===g;o.hidden=!visible;o.disabled=!visible;});if(!company.selectedOptions.length||company.selectedOptions[0].disabled){const first=[...company.options].find(o=>o.value&&!o.disabled);if(first)company.value=first.value;}const c=company.value;[...branch.options].forEach(o=>{if(!o.value)return;const visible=o.dataset.company===c;o.hidden=!visible;o.disabled=!visible;});if(!branch.selectedOptions.length||branch.selectedOptions[0].disabled)branch.value='0';};group.addEventListener('change',sync);company.addEventListener('change',sync);sync();});})();</script>
+            <?php endif; ?>
             <div class="dropdown topbar-notify">
                 <button type="button"
                         class="topbar-notify-btn dropdown-toggle<?php echo $_adminNotifyTotalCount > 0 ? ' has-alerts' : ''; ?>"
@@ -593,13 +771,13 @@ echo isLoggedIn()
                     <span class="topbar-user-role"><i class="fas fa-crown me-1" style="font-size:.6rem;color:var(--clr-warning);"></i><?php echo $_userRole; ?></span>
                 </div>
             </div>
-            <a href="<?php echo URLROOT; ?>/login/logout"
-               class="topbar-logout-btn"
-               title="Cerrar sesión"
-               aria-label="Cerrar sesión">
-                <i class="fas fa-sign-out-alt"></i>
-                <span class="topbar-logout-label d-none d-md-inline">Salir</span>
-            </a>
+            <form method="post" action="<?php echo URLROOT; ?>/login/logout" class="m-0">
+                <?php echo csrf_field(); ?>
+                <button type="submit" class="topbar-logout-btn border-0" title="Cerrar sesión" aria-label="Cerrar sesión">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span class="topbar-logout-label d-none d-md-inline">Salir</span>
+                </button>
+            </form>
         </div>
     </header>
 

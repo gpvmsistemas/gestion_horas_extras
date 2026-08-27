@@ -81,7 +81,7 @@ $costo       = $data['stats']['estimated_cost'];
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
         <div class="db-kpi">
-            <div class="db-kpi-icon" style="background:#fce4f3"><i class="fas fa-users" style="color:#e91e8c"></i></div>
+            <div class="db-kpi-icon" style="background:var(--clr-primary-l)"><i class="fas fa-users" style="color:var(--clr-primary)"></i></div>
             <div>
                 <div class="db-kpi-val"><?php echo $data['stats']['active_users']; ?></div>
                 <div class="db-kpi-lbl">Empleados activos</div>
@@ -220,7 +220,7 @@ $costo       = $data['stats']['estimated_cost'];
             <?php endforeach; endif; ?>
 
             <?php if(!empty($data['birthday_info']['today_birthdays'])): ?>
-            <div class="mt-3 p-3 rounded-3 text-center" style="background:linear-gradient(135deg,#fce4f3,#ede9fe)">
+            <div class="mt-3 p-3 rounded-3 text-center" style="background:linear-gradient(135deg,var(--clr-primary-l),var(--clr-primary-xl))">
                 <div style="font-size:1.6rem">🎂</div>
                 <div style="font-weight:700;font-size:.88rem;color:#7c3aed">¡Cumpleaños hoy!</div>
                 <?php foreach($data['birthday_info']['today_birthdays'] as $b): ?>
@@ -228,10 +228,10 @@ $costo       = $data['stats']['estimated_cost'];
                 <?php endforeach; ?>
             </div>
             <?php elseif(!empty($data['birthday_info']['upcoming_birthdays'])): $nb=$data['birthday_info']['upcoming_birthdays'][0]; ?>
-            <div class="mt-3 d-flex align-items-center gap-2 p-2 rounded-3" style="background:#fff0f9;border:1px solid #fce4f3">
+            <div class="mt-3 d-flex align-items-center gap-2 p-2 rounded-3" style="background:var(--clr-primary-xl);border:1px solid var(--clr-primary-l)">
                 <span style="font-size:1.3rem">🎂</span>
                 <div>
-                    <div style="font-size:.73rem;color:#e91e8c;font-weight:700">Próximo cumpleaños</div>
+                    <div style="font-size:.73rem;color:var(--clr-primary);font-weight:700">Próximo cumpleaños</div>
                     <div style="font-size:.82rem;font-weight:600;color:#2d1f2b"><?php echo htmlspecialchars($nb->full_name); ?></div>
                 </div>
             </div>
@@ -264,7 +264,7 @@ $costo       = $data['stats']['estimated_cost'];
                     <i class="fas fa-file-export"></i> Ver reportes
                 </a>
                 <?php if ($overtimeEnabled): ?>
-                <a href="<?php echo URLROOT; ?>/admin/pendingOvertime" class="db-action-btn" style="background:#fce4f3;color:#9d174d">
+                <a href="<?php echo URLROOT; ?>/admin/pendingOvertime" class="db-action-btn" style="background:var(--clr-primary-l);color:var(--clr-primary-d)">
                     <i class="fas fa-clock"></i> Horas pendientes
                 </a>
                 <a href="<?php echo URLROOT; ?>/admin/history" class="db-action-btn" style="background:#f5f3ff;color:#6d28d9">
@@ -286,9 +286,9 @@ $costo       = $data['stats']['estimated_cost'];
 <div class="modal fade" id="closureSummaryModal" tabindex="-1" aria-labelledby="closureModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header" style="background:linear-gradient(135deg,#18111a,#2d1040);color:#fff;border-bottom:1px solid rgba(233,30,140,.25)">
+            <div class="modal-header db-dark-head">
                 <h5 class="modal-title" id="closureModalLabel">
-                    <i class="fas fa-file-invoice-dollar me-2" style="color:#e91e8c"></i>
+                    <i class="fas fa-file-invoice-dollar me-2" style="color:var(--clr-primary)"></i>
                     Resumen del cierre — <?php echo $mesActual . ' ' . $anioActual; ?>
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -300,7 +300,7 @@ $costo       = $data['stats']['estimated_cost'];
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle">
-                        <thead style="background:#fdf4fa"><tr>
+                        <thead style="background:var(--clr-primary-xl)"><tr>
                             <th>Empleado</th>
                             <th class="text-end">Hs. 50%</th>
                             <th class="text-end">Hs. 100%</th>
@@ -350,6 +350,16 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     <?php if ($overtimeEnabled): ?>
+    /* Paleta de los gráficos tomada del tema activo (Paviotti rosa / Moderna azul) */
+    var _cs = getComputedStyle(document.body);
+    var chartPrimary   = (_cs.getPropertyValue('--clr-primary') || '#e91e8c').trim();
+    var chartSecondary = (_cs.getPropertyValue('--clr-secondary') || '#7c3aed').trim();
+    function chartRgba(hex, a) {
+        var h = hex.replace('#', '');
+        if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+        var n = parseInt(h, 16);
+        return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+    }
     var dist50   = <?php echo $data['charts']['overtime_distribution'] ?? '[]'; ?>;
     var byDay    = <?php echo $data['charts']['overtime_by_day'] ?? '[]'; ?>;
     var histLbls = <?php echo $data['charts']['historical']['labels'] ?? '[]'; ?>;
@@ -362,8 +372,8 @@ document.addEventListener("DOMContentLoaded", function() {
         data: {
             labels: histLbls,
             datasets: [
-                { label: 'Hs. 50%', data: hist50,  backgroundColor: 'rgba(233,30,140,.75)', borderRadius: 5 },
-                { label: 'Hs. 100%', data: hist100, backgroundColor: 'rgba(124,58,237,.65)', borderRadius: 5 }
+                { label: 'Hs. 50%', data: hist50,  backgroundColor: chartRgba(chartPrimary, .75), borderRadius: 5 },
+                { label: 'Hs. 100%', data: hist100, backgroundColor: chartRgba(chartSecondary, .65), borderRadius: 5 }
             ]
         },
         options: {
@@ -383,7 +393,7 @@ document.addEventListener("DOMContentLoaded", function() {
             type: 'doughnut',
             data: {
                 labels: ['Hs. 50%', 'Hs. 100%'],
-                datasets: [{ data: dist50, backgroundColor: ['#e91e8c','#7c3aed'], borderWidth: 3, borderColor: '#fff' }]
+                datasets: [{ data: dist50, backgroundColor: [chartPrimary, chartSecondary], borderWidth: 3, borderColor: '#fff' }]
             },
             options: {
                 maintainAspectRatio: false, cutout: '72%',
@@ -400,7 +410,7 @@ document.addEventListener("DOMContentLoaded", function() {
         type: 'bar',
         data: {
             labels: ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],
-            datasets: [{ data: byDay, backgroundColor: 'rgba(233,30,140,.7)', borderRadius: 5 }]
+            datasets: [{ data: byDay, backgroundColor: chartRgba(chartPrimary, .7), borderRadius: 5 }]
         },
         options: {
             maintainAspectRatio: false,

@@ -151,6 +151,17 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
     border-radius: .7rem; box-shadow: 0 1px 6px rgba(0,0,0,.08);
     margin-bottom: .75rem;
 }
+.planner-context {
+    display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;
+    padding:1rem 1.15rem; margin-bottom:.75rem; border-radius:.85rem;
+    color:#fff; background:linear-gradient(120deg,#18223d 0%,#285a78 100%);
+    box-shadow:0 8px 22px rgba(24,34,61,.16);
+}
+.planner-context h1 { margin:0; font-size:1.15rem; font-weight:800; letter-spacing:.01em; }
+.planner-context p { margin:.15rem 0 0; color:rgba(255,255,255,.75); font-size:.8rem; }
+.planner-context .context-branch { padding:.34rem .7rem; border-radius:999px; background:rgba(255,255,255,.14); font-size:.78rem; font-weight:700; }
+.btn-fixed-week { border-color:#0f766e; color:#0f766e; font-weight:700; }
+.btn-fixed-week:hover { background:#0f766e; color:#fff; }
 .template-form { display: flex; gap: .5rem; align-items: center; }
 .date-picker-container { position: relative; }
 #date-picker-icon { cursor: pointer; font-size: 1.35rem; color: #6b7280; }
@@ -198,6 +209,7 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
 }
 .hours-summary { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .hours-summary .badge { font-size: .78rem; padding: .35em .65em; font-weight: 600; letter-spacing: .01em; }
+.hours-summary .weekly-gap { white-space: nowrap; }
 .day-cell.day-over-limit:not(.is-editing) {
     background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%) !important;
     box-shadow: inset 0 0 0 2px #fb923c;
@@ -319,6 +331,15 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
 </style>
 
 <!-- â•â•â• PALETTE â•â•â• -->
+<section class="planner-context" aria-labelledby="planner-heading">
+    <div>
+        <h1 id="planner-heading"><i class="fas fa-calendar-week me-2"></i>Planificación semanal</h1>
+        <p>Arrastrá turnos o usá una jornada fija para completar rápidamente una semana laboral.</p>
+    </div>
+    <?php if (!empty($data['selected_branch'])): ?>
+    <span class="context-branch"><i class="fas fa-store me-1"></i><?php echo htmlspecialchars($data['selected_branch']->name); ?></span>
+    <?php endif; ?>
+</section>
 <div class="shift-palette">
     <span class="palette-label"><i class="fas fa-grip-dots me-1"></i> Arrastr&aacute; a un d&iacute;a:</span>
 
@@ -360,11 +381,34 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
 
 <!-- â•â•â• NAV â•â•â• -->
 <div class="planner-nav">
-    <a href="<?php echo URLROOT; ?>/admin/weeklyPlanner?week=<?php echo $data['prev_week_string']; ?>"
+    <?php $branchQuery = !empty($data['selected_branch_id']) ? '&branch_id=' . (int)$data['selected_branch_id'] : ''; ?>
+    <a href="<?php echo URLROOT; ?>/admin/weeklyPlanner?week=<?php echo $data['prev_week_string']; ?><?php echo $branchQuery; ?>"
        class="btn btn-outline-secondary btn-sm">&laquo; Anterior</a>
+
+    <?php if (!empty($data['branch_scope_ready'])): ?>
+    <form method="get" action="<?php echo URLROOT; ?>/admin/weeklyPlanner" class="d-flex align-items-center gap-2" aria-label="Seleccionar sucursal">
+        <input type="hidden" name="week" value="<?php echo htmlspecialchars($data['current_week_string']); ?>">
+        <label for="planner-branch" class="visually-hidden">Sucursal</label>
+        <select name="branch_id" id="planner-branch" class="form-select form-select-sm" onchange="this.form.submit()">
+            <?php foreach ($data['branches'] as $branch): ?>
+            <option value="<?php echo (int)$branch->id; ?>" <?php echo (int)$data['selected_branch_id'] === (int)$branch->id ? 'selected' : ''; ?>>
+                <?php echo htmlspecialchars($branch->name . ' — ' . $branch->locality); ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+        <noscript><button type="submit" class="btn btn-sm btn-outline-primary">Ver</button></noscript>
+    </form>
+    <?php endif; ?>
+
+    <?php if (!empty($data['branches']) && empty($data['branch_scope_ready'])): ?>
+    <div class="small text-warning-emphasis" role="status">
+        Aplicá <code>migration_branch_planner_scope.sql</code> para planificar por sucursal.
+    </div>
+    <?php endif; ?>
 
     <form action="<?php echo URLROOT; ?>/admin/applyTemplate" method="post" class="template-form">
         <input type="hidden" name="target_week" value="<?php echo $data['current_week_string']; ?>">
+        <input type="hidden" name="branch_id" value="<?php echo (int)($data['selected_branch_id'] ?? 0); ?>">
         <input type="hidden" name="csrf_token"   value="<?php echo csrf_token(); ?>">
         <select name="template_id" class="form-select form-select-sm" required>
             <option value="" disabled selected>Aplicar plantilla...</option>
@@ -380,7 +424,7 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
             <label for="date-picker" id="date-picker-icon" title="Ir a fecha"><i class="fas fa-calendar-alt"></i></label>
             <input type="date" id="date-picker">
         </div>
-        <a href="<?php echo URLROOT; ?>/admin/weeklyPlanner?week=<?php echo $data['next_week_string']; ?>"
+        <a href="<?php echo URLROOT; ?>/admin/weeklyPlanner?week=<?php echo $data['next_week_string']; ?><?php echo $branchQuery; ?>"
            class="btn btn-outline-secondary btn-sm">Siguiente &raquo;</a>
     </div>
 </div>
@@ -388,6 +432,7 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
 <!-- â•â•â• PLANNER FORM â•â•â• -->
 <form id="planner-form" action="<?php echo URLROOT; ?>/admin/weeklyPlanner" method="post">
     <input type="hidden" name="current_week" value="<?php echo $data['current_week_string']; ?>">
+    <input type="hidden" name="branch_id" value="<?php echo (int)($data['selected_branch_id'] ?? 0); ?>">
     <input type="hidden" name="csrf_token"   value="<?php echo csrf_token(); ?>">
 
     <div class="card shadow-sm">
@@ -410,10 +455,20 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
                     <tbody>
                         <?php foreach($data['users'] as $user):
                             $weekly_total = $data['weekly_totals'][$user->id];
+                            $branch_total = $data['weekly_branch_totals'][$user->id] ?? $weekly_total;
                             $limit        = $user->weekly_hour_limit;
                             $badge_class  = 'bg-primary';
+                            $gap_class = 'bg-success';
+                            $gap_label = 'Meta cumplida';
                             if ($limit > 0 && $weekly_total > $limit)         { $badge_class = 'bg-danger'; }
                             elseif ($limit > 0 && $weekly_total > $limit*0.9) { $badge_class = 'bg-warning text-dark'; }
+                            if ($limit > 0 && $weekly_total < $limit) {
+                                $gap_class = 'bg-warning text-dark';
+                                $gap_label = 'Faltan: ' . number_format($limit - $weekly_total, 1) . ' hs';
+                            } elseif ($limit > 0 && $weekly_total > $limit) {
+                                $gap_class = 'bg-danger';
+                                $gap_label = 'Excede: ' . number_format($weekly_total - $limit, 1) . ' hs';
+                            }
                         ?>
                         <tr data-user-row-id="<?php echo $user->id; ?>">
                             <td class="user-col">
@@ -421,9 +476,16 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
                                 <div class="hours-summary">
                                     <span class="badge <?php echo $badge_class; ?> weekly-total"
                                                                                     title="L&iacute;mite: <?php echo $limit; ?> hs"
-                                                                                    data-weekly-limit="<?php echo (float)$limit; ?>">
-                                        Sem: <?php echo number_format($weekly_total, 1); ?> hs
+                                                                                    data-weekly-limit="<?php echo (float)$limit; ?>"
+                                                                                    data-weekly-offset="<?php echo (float)($weekly_total - $branch_total); ?>">
+                                        Total: <?php echo number_format($weekly_total, 1); ?> / <?php echo number_format($limit, 1); ?> hs
                                     </span>
+                                    <?php if (!empty($data['branch_scope_ready'])): ?>
+                                    <span class="badge bg-info branch-weekly-total">Esta sede: <?php echo number_format($branch_total, 1); ?> hs</span>
+                                    <?php endif; ?>
+                                    <?php if ($limit > 0): ?>
+                                    <span class="badge <?php echo $gap_class; ?> weekly-gap" aria-live="polite"><?php echo $gap_label; ?></span>
+                                    <?php endif; ?>
                                     <span class="badge bg-info monthly-total-<?php echo $data['month1_num']; ?>">
                                         <?php echo $data['nombres_mes'][$data['month1_num']]; ?>: <?php echo number_format($data['monthly_totals'][$user->id][$data['month1_num']], 1); ?> hs
                                     </span>
@@ -439,6 +501,13 @@ function renderChip($userId, $date, $index, $entry, $shifts, $readOnly = false) 
                                         data-user-name="<?php echo htmlspecialchars($user->full_name, ENT_QUOTES); ?>"
                                         title="Repetir horario de esta semana">
                                     <i class="fas fa-calendar-plus"></i> Repetir
+                                </button>
+                                <button type="button"
+                                        class="btn btn-fixed-week btn-sm mt-1 btn-fixed-weekday"
+                                        data-user-id="<?php echo (int)$user->id; ?>"
+                                        data-user-name="<?php echo htmlspecialchars($user->full_name, ENT_QUOTES); ?>"
+                                        title="Copiar una jornada base todos los lunes a viernes">
+                                    <i class="fas fa-business-time"></i> Jornada L–V
                                 </button>
                             </td>
 
@@ -846,6 +915,25 @@ function updateWeeklyBadgeState(badge, total) {
     }
 }
 
+function updateWeeklyGap(row, total) {
+    var badge = row.querySelector('.weekly-gap');
+    var weekly = row.querySelector('.weekly-total');
+    if (!badge || !weekly) return;
+    var limit = parseFloat(weekly.dataset.weeklyLimit || 0);
+    if (limit <= 0) return;
+    badge.className = 'badge weekly-gap';
+    if (total < limit) {
+        badge.textContent = 'Faltan: ' + (limit - total).toFixed(1) + ' hs';
+        badge.classList.add('bg-warning', 'text-dark');
+    } else if (total > limit) {
+        badge.textContent = 'Excede: ' + (total - limit).toFixed(1) + ' hs';
+        badge.classList.add('bg-danger');
+    } else {
+        badge.textContent = 'Meta cumplida';
+        badge.classList.add('bg-success');
+    }
+}
+
 function refreshRowTotals(row) {
     if (!row) return;
 
@@ -869,8 +957,14 @@ function refreshRowTotals(row) {
 
     var weeklyBadge = row.querySelector('.weekly-total');
     if (weeklyBadge) {
-        weeklyBadge.textContent = 'Sem: ' + weeklyTotal.toFixed(1) + ' hs';
-        updateWeeklyBadgeState(weeklyBadge, weeklyTotal);
+        var globalTotal = weeklyTotal + parseFloat(weeklyBadge.dataset.weeklyOffset || 0);
+        weeklyBadge.textContent = 'Total: ' + globalTotal.toFixed(1) + ' / ' + parseFloat(weeklyBadge.dataset.weeklyLimit || 0).toFixed(1) + ' hs';
+        updateWeeklyBadgeState(weeklyBadge, globalTotal);
+        updateWeeklyGap(row, globalTotal);
+    }
+    var branchBadge = row.querySelector('.branch-weekly-total');
+    if (branchBadge) {
+        branchBadge.textContent = 'Esta sede: ' + weeklyTotal.toFixed(1) + ' hs';
     }
 
     row.querySelectorAll('[class*="monthly-total-"]').forEach(function(badge) {
@@ -904,7 +998,7 @@ document.getElementById('date-picker').addEventListener('change', function(e) {
     var jan4  = new Date(d.getFullYear(), 0, 4);
     var start = new Date(jan4.getFullYear(), jan4.getMonth(), jan4.getDate() - (jan4.getDay() + 6) % 7);
     var week  = 1 + Math.floor((d - start) / (7 * 86400000));
-    window.location.href = '<?php echo URLROOT; ?>/admin/weeklyPlanner?week=' + d.getFullYear() + '-W' + String(week).padStart(2, '0');
+    window.location.href = '<?php echo URLROOT; ?>/admin/weeklyPlanner?week=' + d.getFullYear() + '-W' + String(week).padStart(2, '0') + '<?php echo $branchQuery; ?>';
 });
 
 /* â”€â”€ Escape HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€*/
@@ -949,6 +1043,29 @@ document.querySelectorAll('tr[data-user-row-id]').forEach(function(row) {
         });
     });
 })();
+
+/* Jornada fija: una fecha base se replica en cada lunes a viernes del rango. */
+(function() {
+    var modalEl = document.getElementById('fixedWeekdayModal');
+    if (!modalEl || typeof bootstrap === 'undefined') return;
+    var modal = new bootstrap.Modal(modalEl);
+    var form = document.getElementById('fixedWeekdayForm');
+    var weekStart = '<?php echo htmlspecialchars($data['week_dates'][0]['full_date'] ?? date('Y-m-d')); ?>';
+    var weekEnd = '<?php echo htmlspecialchars(end($data['week_dates'])['full_date'] ?? date('Y-m-d')); ?>';
+    var monthEnd = '<?php echo date('Y-m-t', strtotime($data['week_dates'][0]['full_date'] ?? 'now')); ?>';
+    document.querySelectorAll('.btn-fixed-weekday').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            form.querySelector('[name="user_id"]').value = btn.getAttribute('data-user-id');
+            document.getElementById('fixedWeekdayUserName').textContent = btn.getAttribute('data-user-name');
+            form.querySelector('[name="source_date"]').value = weekStart;
+            var nextMonday = new Date(weekEnd + 'T12:00:00');
+            nextMonday.setDate(nextMonday.getDate() + 1);
+            form.querySelector('[name="from_date"]').value = nextMonday.toISOString().slice(0, 10);
+            form.querySelector('[name="to_date"]').value = monthEnd;
+            modal.show();
+        });
+    });
+})();
 </script>
 
 <div class="modal fade" id="repeatScheduleModal" tabindex="-1">
@@ -959,6 +1076,7 @@ document.querySelectorAll('tr[data-user-row-id]').forEach(function(row) {
                 <input type="hidden" name="user_id" value="">
                 <input type="hidden" name="ref_week" value="<?php echo htmlspecialchars($data['current_week_string']); ?>">
                 <input type="hidden" name="return_week" value="<?php echo htmlspecialchars($data['current_week_string']); ?>">
+                <input type="hidden" name="branch_id" value="<?php echo (int)($data['selected_branch_id'] ?? 0); ?>">
                 <div class="modal-header">
                     <h5 class="modal-title">Repetir horario</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -987,6 +1105,42 @@ document.querySelectorAll('tr[data-user-row-id]').forEach(function(row) {
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Aplicar al rango</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fixedWeekdayModal" tabindex="-1" aria-labelledby="fixedWeekdayTitle" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="fixedWeekdayForm" method="post" action="<?php echo URLROOT; ?>/admin/applyFixedWeekdaySchedule">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="user_id" value="">
+                <input type="hidden" name="return_week" value="<?php echo htmlspecialchars($data['current_week_string']); ?>">
+                <input type="hidden" name="branch_id" value="<?php echo (int)($data['selected_branch_id'] ?? 0); ?>">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="fixedWeekdayTitle"><i class="fas fa-business-time me-2 text-success"></i>Jornada fija de lunes a viernes</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">Se copiará la jornada de la fecha base para <strong id="fixedWeekdayUserName"></strong> en cada día hábil del rango. Sábados y domingos quedan sin cambios.</p>
+                    <div class="mb-3">
+                        <label class="form-label" for="fixedSourceDate">Fecha base con el horario correcto</label>
+                        <input id="fixedSourceDate" type="date" name="source_date" class="form-control" required>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6"><label class="form-label" for="fixedFromDate">Desde</label><input id="fixedFromDate" type="date" name="from_date" class="form-control" required></div>
+                        <div class="col-md-6"><label class="form-label" for="fixedToDate">Hasta</label><input id="fixedToDate" type="date" name="to_date" class="form-control" required></div>
+                    </div>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" name="overwrite" value="1" id="fixedOverwrite" checked>
+                        <label class="form-check-label" for="fixedOverwrite">Sobrescribir días hábiles con turnos existentes</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success"><i class="fas fa-copy me-1"></i>Aplicar jornada fija</button>
                 </div>
             </form>
         </div>

@@ -73,6 +73,35 @@
             document.getElementById('reqReviewReason').textContent = req.reason || '—';
             document.getElementById('reqReviewNotes').value = req.admin_notes || '';
 
+            var vacationBox = document.getElementById('reqVacationPreview');
+            var exceptionBlock = document.getElementById('reqVacationExceptionBlock');
+            var exceptionInput = document.getElementById('reqVacationException');
+            if (exceptionInput) exceptionInput.value = '';
+            if (req.vacation_preview && vacationBox) {
+                var vp = req.vacation_preview;
+                var html = '<strong>Imputación FIFO:</strong> ';
+                if (!vp.ok) {
+                    html += '<span class="text-danger">' + escapeHtml(vp.message || 'No se puede aprobar.') + '</span>';
+                } else {
+                    html += escapeHtml(String(vp.days)) + ' día(s). ';
+                    html += (vp.allocations || []).map(function (a) {
+                        return escapeHtml(a.period_label + ': ' + a.days);
+                    }).join(' · ');
+                    html += '<br><span class="text-muted">Disponible: ' + escapeHtml(String(vp.total_available))
+                        + '. Saldo posterior estimado: ' + escapeHtml(String(vp.remaining_after))
+                        + '. El resto seguirá pendiente.</span>';
+                    if (vp.warnings && vp.warnings.length) {
+                        html += '<hr class="my-2"><strong>Requiere excepción:</strong><br>' + vp.warnings.map(escapeHtml).join('<br>');
+                    }
+                }
+                vacationBox.innerHTML = html;
+                vacationBox.style.display = 'block';
+                if (exceptionBlock) exceptionBlock.style.display = vp.requires_override ? 'block' : 'none';
+            } else {
+                if (vacationBox) { vacationBox.style.display = 'none'; vacationBox.innerHTML = ''; }
+                if (exceptionBlock) exceptionBlock.style.display = 'none';
+            }
+
             var certBlock = document.getElementById('reqReviewCertBlock');
             var certLink = document.getElementById('reqReviewCertLink');
             if (req.certificate_url) {

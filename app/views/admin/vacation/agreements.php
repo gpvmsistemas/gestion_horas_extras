@@ -19,9 +19,9 @@
     <strong><i class="fas fa-info-circle me-1"></i>Cómo usarlo en tu grupo (varios rubros)</strong>
     <ul class="mb-0 mt-2">
         <li><strong>Servicios Sociales</strong> y <strong>Ecofarma</strong> son empresas distintas en el sistema → cada una puede tener un convenio distinto en el panel de la derecha.</li>
-        <li>Ejemplo: Servicios Sociales → <em>CEC</em> (Comercio). Ecofarma (farmacia) → creá un convenio nuevo (ej. farmacéuticos) y asignalo como default de Ecofarma.</li>
+        <li>Los convenios Comercio, Farmacia Córdoba, SOECRA, UTEDYC y Sanidad ya vienen precargados; solo deben asignarse donde corresponda.</li>
         <li>Si un empleado es excepción, en <strong>Editar usuario</strong> o <strong>Carga vacaciones</strong> elegí otro convenio (override individual).</li>
-        <li>Las <strong>áreas</strong> (Depósito, Farmacia, etc.) no cambian el convenio automáticamente hoy; el criterio es empresa + override por persona.</li>
+        <li>Prioridad de asignación: empleado, luego área y finalmente convenio por defecto de la empresa.</li>
     </ul>
 </div>
 
@@ -46,7 +46,7 @@
                     $mNames = ['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
                     echo (int)$ag->period_start_day . ' ' . ($mNames[(int)$ag->period_start_month] ?? '?');
                     ?>
-                    de cada año (ej. 1 oct = período Oct–Sep).
+                    de cada año. Los convenios precargados usan año calendario (1 ene–31 dic).
                 </p>
                 <?php if (empty($ag->rules)): ?>
                 <p class="text-warning small mb-0">Sin reglas de antigüedad — <a href="<?php echo URLROOT; ?>/vacationAdmin/editAgreement/<?php echo (int)$ag->id; ?>">configurar</a>.</p>
@@ -58,7 +58,7 @@
                     <tr>
                         <td><?php echo (int)$rule->min_months; ?> – <?php echo $rule->max_months !== null ? (int)$rule->max_months : '∞'; ?></td>
                         <td><strong><?php echo (int)$rule->days_entitled; ?></strong></td>
-                        <td><?php echo $rule->day_count_mode === 'calendar' ? 'Corridos' : 'Hábiles'; ?></td>
+                        <td><?php echo htmlspecialchars(vacation_day_count_modes()[$rule->day_count_mode] ?? $rule->day_count_mode); ?></td>
                         <td class="small"><?php echo htmlspecialchars($rule->notes ?? ''); ?></td>
                     </tr>
                     <?php endforeach; ?>
@@ -128,7 +128,7 @@
         <?php if (function_exists('vacation_module_ready') && vacation_module_ready()): ?>
         <div class="card border shadow-sm border-success mt-3">
             <div class="card-header bg-success bg-opacity-10">
-                <strong><i class="fas fa-bolt me-1"></i>Liquidación masiva (octubre)</strong>
+                <strong><i class="fas fa-bolt me-1"></i>Liquidación masiva anual</strong>
             </div>
             <div class="card-body">
                 <p class="small text-muted mb-2">

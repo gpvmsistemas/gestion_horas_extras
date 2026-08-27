@@ -7,7 +7,14 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
 
 <?php if(isLoggedIn()): ?>
     <footer class="app-footer">
-        <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo function_exists('company_brand_display_name') ? htmlspecialchars(company_brand_display_name()) : SITENAME; ?> &mdash; Todos los derechos reservados.</p>
+        <?php
+        // Suite P&M: en la vista Moderna el footer lleva la marca completa.
+        $_footerBrand = function_exists('company_brand_display_name') ? company_brand_display_name() : SITENAME;
+        if (function_exists('org_is_moderna') && org_is_moderna()) {
+            $_footerBrand = 'Red Farmacias Moderna';
+        }
+        ?>
+        <p class="mb-0">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars($_footerBrand); ?> &mdash; Todos los derechos reservados.</p>
     </footer>
 
 <?php if(hasRole('empleado')): ?>
@@ -36,11 +43,12 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
        class="emp-bnav-item <?php echo (strpos($_uri, '/request/index') !== false) ? 'active' : ''; ?>">
         <i class="fas fa-file-alt"></i><span>Solicitudes</span>
     </a>
-    <a href="<?php echo URLROOT; ?>/login/logout"
-       class="emp-bnav-item emp-bnav-item--logout"
-       aria-label="Cerrar sesión">
-        <i class="fas fa-sign-out-alt"></i><span>Salir</span>
-    </a>
+    <form method="post" action="<?php echo URLROOT; ?>/login/logout" class="emp-bnav-logout-form">
+        <?php echo csrf_field(); ?>
+        <button type="submit" class="emp-bnav-item emp-bnav-item--logout border-0" aria-label="Cerrar sesión">
+            <i class="fas fa-sign-out-alt"></i><span>Salir</span>
+        </button>
+    </form>
 </nav>
 <?php endif; ?>
 
@@ -59,9 +67,9 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <!-- SweetAlert2 -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.15.10/dist/sweetalert2.all.min.js"></script>
 <!-- DataTables Buttons -->
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
@@ -102,16 +110,25 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
         if (sidebar)  sidebar.classList.add('is-open');
         if (overlay)  overlay.classList.add('is-active');
         document.body.style.overflow = 'hidden';
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
+        if (closeBtn) closeBtn.focus();
     }
     function closeSidebar() {
         if (sidebar)  sidebar.classList.remove('is-open');
         if (overlay)  overlay.classList.remove('is-active');
         document.body.style.overflow = '';
+        if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
     }
 
     if (openBtn)   openBtn.addEventListener('click', openSidebar);
     if (closeBtn)  closeBtn.addEventListener('click', closeSidebar);
     if (overlay)   overlay.addEventListener('click', closeSidebar);
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && sidebar && sidebar.classList.contains('is-open')) {
+            closeSidebar();
+            if (openBtn) openBtn.focus();
+        }
+    });
 
     // Colapsar sidebar en desktop
     if (desktopBtn) {
@@ -131,5 +148,26 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
     });
 }());
 </script>
+<?php if (isLoggedIn() && isStaffAdmin()): ?>
+<script>
+(function () {
+    function semanticState(element, text) {
+        var value = (text || '').trim().toLocaleLowerCase('es');
+        element.classList.toggle('ui-state-yes', value === 'sí' || value === 'si' || value === 'activo' || value === 'activa' || value === 'visible' || value === 'aprobado' || value === 'aprobada');
+        element.classList.toggle('ui-state-no', value === 'no' || value === 'inactivo' || value === 'inactiva' || value === 'oculto' || value === 'rechazado' || value === 'rechazada');
+    }
+    document.querySelectorAll('.page-content .badge').forEach(function (badge) {
+        semanticState(badge, badge.textContent);
+    });
+    document.querySelectorAll('.page-content select').forEach(function (select) {
+        var options = Array.from(select.options).map(function (option) { return option.textContent.trim().toLocaleLowerCase('es'); });
+        if (!options.some(function (text) { return text === 'sí' || text === 'si' || text === 'no'; })) return;
+        var sync = function () { semanticState(select, select.selectedOptions[0] ? select.selectedOptions[0].textContent : ''); };
+        select.addEventListener('change', sync);
+        sync();
+    });
+}());
+</script>
+<?php endif; ?>
 </body>
 </html>

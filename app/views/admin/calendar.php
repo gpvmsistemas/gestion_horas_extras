@@ -82,7 +82,7 @@ $todayDay = date('Y-m-d');
             <input type="month" name="month" class="form-control form-control-sm" value="<?php echo htmlspecialchars($data['month']); ?>">
         </div>
         <div class="col-6 col-md-2 col-lg-1">
-            <button type="submit" class="btn btn-primary btn-sm w-100"><i class="fas fa-search"></i></button>
+            <button type="submit" class="btn btn-primary btn-sm w-100" aria-label="Aplicar filtros" title="Aplicar filtros"><i class="fas fa-search"></i></button>
         </div>
         <div class="col-6 col-md-3 col-lg-2">
             <a href="<?php echo URLROOT; ?>/admin/calendar?<?php echo $calQs(['month' => $todayMonth, 'day' => $todayDay]); ?>"

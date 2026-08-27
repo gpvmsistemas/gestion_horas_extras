@@ -286,6 +286,7 @@ function mapeoClockBadge($devices, $clockMap) {
                           onsubmit="return confirm('¿Desvincular ID <?php echo htmlspecialchars($emp['employeeID']); ?>?')">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="employee_id" value="<?php echo htmlspecialchars($emp['employeeID']); ?>">
+                        <input type="hidden" name="device_name" value="<?php echo htmlspecialchars($emp['devices'][0] ?? ''); ?>">
                         <input type="hidden" name="start_date"  value="<?php echo htmlspecialchars($data['start_date']); ?>">
                         <input type="hidden" name="end_date"    value="<?php echo htmlspecialchars($data['end_date']); ?>">
                         <button type="submit" class="btn btn-sm btn-outline-danger" title="Desvincular">

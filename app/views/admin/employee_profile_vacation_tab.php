@@ -1,7 +1,7 @@
 <div class="tab-pane fade" id="tab-vacation">
     <?php if (empty($data['vacation_ready'])): ?>
     <div class="alert alert-warning small">
-        Ejecutá <code>migration_collective_agreements.sql</code> y <code>migration_schedule_vacation_types.sql</code> (MIGRATIONS.md #22–23).
+        Ejecutá las migraciones históricas de convenios y luego <code>migration_vacation_management_v2.sql</code> (ver <code>MIGRATIONS.md</code>).
     </div>
     <?php else:
         $vs = $data['vacation_summary'];
@@ -31,17 +31,19 @@
     <div class="table-responsive border rounded mb-3">
         <table class="table table-sm mb-0">
             <thead class="table-light">
-                <tr><th>Período</th><th>Desde</th><th>Hasta</th><th>Corresponden</th><th>Tomados</th><th>Pendientes</th><th>Estado</th></tr>
+                <tr><th>Período</th><th>Tipo / unidad</th><th>Desde</th><th>Hasta</th><th>Corresponden</th><th>Ajuste</th><th>Tomados</th><th>Pendientes</th><th>Estado</th></tr>
             </thead>
             <tbody>
             <?php if (empty($vs['periods'])): ?>
-            <tr><td colspan="7" class="text-muted text-center py-3">Sin períodos cargados. Usá «Carga / períodos».</td></tr>
+            <tr><td colspan="9" class="text-muted text-center py-3">Sin períodos cargados. Usá «Carga / períodos».</td></tr>
             <?php else: foreach ($vs['periods'] as $p): ?>
             <tr>
                 <td><strong><?php echo htmlspecialchars($p->period_label); ?></strong></td>
+                <td><span class="badge bg-light text-dark border"><?php echo htmlspecialchars($p->balance_type ?? 'annual'); ?></span><div class="small text-muted"><?php echo htmlspecialchars($p->count_mode_snapshot ?? 'calendar'); ?></div><?php if(!empty($p->expires_at)): ?><div class="small text-warning">Vence <?php echo date('d/m/Y',strtotime($p->expires_at)); ?></div><?php endif; ?></td>
                 <td><?php echo date('d/m/Y', strtotime($p->period_start)); ?></td>
                 <td><?php echo date('d/m/Y', strtotime($p->period_end)); ?></td>
                 <td><?php echo vacation_format_days($p->days_entitled); ?></td>
+                <td><?php echo vacation_format_days($p->adjustment_days ?? 0); ?></td>
                 <td><?php echo vacation_format_days($p->days_taken); ?></td>
                 <td><strong><?php echo vacation_format_days(vacation_period_pending($p)); ?></strong></td>
                 <td><?php echo $p->status === 'open' ? 'Abierto' : 'Cerrado'; ?></td>

@@ -103,7 +103,7 @@ $preselectScheduleId = (int)($_GET['schedule_id'] ?? 0);
                 <option value="<?php echo (int)$s->id; ?>" <?php echo ($preselectScheduleId === (int)$s->id) ? 'selected' : ''; ?>>
                     <?php
                     $dn = date('d/m/Y', strtotime($s->schedule_date));
-                    $nm = !empty($s->shift_name) ? $s->shift_name : ucfirst($s->type);
+                    $nm = employee_schedule_entry_label($s);
                     echo htmlspecialchars($dn . ' · ' . $nm . ' (' . substr($s->start_time, 0, 5) . '–' . substr($s->end_time, 0, 5) . ')');
                     ?>
                 </option>
@@ -188,30 +188,31 @@ $preselectScheduleId = (int)($_GET['schedule_id'] ?? 0);
         <?php if (empty($requestTypes)): ?>
         <p class="text-muted small mb-0">No hay tipos de ausencia habilitados. Consultá a RRHH.</p>
         <?php else: ?>
-        <form action="<?php echo URLROOT; ?>/request/create" method="post">
+        <form action="<?php echo URLROOT; ?>/request/create" method="post" id="employeeAbsenceForm" data-vacation-preview-url="<?php echo URLROOT; ?>/request/vacationPreview">
             <?php echo csrf_field(); ?>
             <div class="emp-form-group">
                 <label class="emp-label">Tipo</label>
-                <select name="request_type_id" class="emp-input" required>
+                <select name="request_type_id" id="employeeRequestType" class="emp-input" required>
                     <?php foreach ($requestTypes as $type): ?>
-                    <option value="<?php echo (int)$type->id; ?>"><?php echo htmlspecialchars($type->name); ?></option>
+                    <option value="<?php echo (int)$type->id; ?>" data-vacation="<?php echo stripos($type->name, 'vacac') !== false ? '1' : '0'; ?>"><?php echo htmlspecialchars($type->name); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
             <div class="emp-form-row">
                 <div class="emp-form-group">
                     <label class="emp-label">Desde</label>
-                    <input type="date" name="start_date" class="emp-input" required>
+                    <input type="date" name="start_date" id="employeeRequestStart" class="emp-input" required>
                 </div>
                 <div class="emp-form-group">
                     <label class="emp-label">Hasta (opcional)</label>
-                    <input type="date" name="end_date" class="emp-input">
+                    <input type="date" name="end_date" id="employeeRequestEnd" class="emp-input">
                 </div>
             </div>
             <div class="emp-form-group">
                 <label class="emp-label">Motivo</label>
                 <textarea name="reason" class="emp-input emp-textarea" rows="3" required placeholder="Describí brevemente el motivo"></textarea>
             </div>
+            <div class="alert alert-info small" id="employeeVacationEstimate" style="display:none"></div>
             <button type="submit" class="emp-btn-primary w-100"><i class="fas fa-paper-plane me-2"></i>Enviar</button>
         </form>
         <?php endif; ?>
@@ -266,6 +267,47 @@ $absenceRequests = array_values(array_filter($requests, function ($r) {
 
 <script>
 (function() {
+    var absenceForm = document.getElementById('employeeAbsenceForm');
+    var requestType = document.getElementById('employeeRequestType');
+    var requestStart = document.getElementById('employeeRequestStart');
+    var requestEnd = document.getElementById('employeeRequestEnd');
+    var estimate = document.getElementById('employeeVacationEstimate');
+    var previewTimer = null;
+
+    function refreshVacationEstimate() {
+        if (!absenceForm || !requestType || !estimate) return;
+        var option = requestType.options[requestType.selectedIndex];
+        if (!option || option.dataset.vacation !== '1' || !requestStart.value) {
+            estimate.style.display = 'none';
+            return;
+        }
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(function () {
+            var fd = new FormData();
+            var csrf = absenceForm.querySelector('input[name="csrf_token"]');
+            if (csrf) fd.append('csrf_token', csrf.value);
+            fd.append('start_date', requestStart.value);
+            fd.append('end_date', requestEnd.value || requestStart.value);
+            estimate.style.display = 'block';
+            estimate.textContent = 'Calculando días y saldo…';
+            fetch(absenceForm.dataset.vacationPreviewUrl, {method:'POST', body:fd, credentials:'same-origin'})
+                .then(function(r){ return r.json(); })
+                .then(function(p){
+                    if (!p.ok) {
+                        estimate.className = 'alert alert-warning small';
+                        estimate.textContent = p.message || 'No se pudo calcular.';
+                        return;
+                    }
+                    estimate.className = 'alert alert-info small';
+                    estimate.innerHTML = 'Solicitud: <strong>' + p.days + ' días computables</strong>. Disponible: <strong>'
+                        + p.total_available + '</strong>. Saldo posterior estimado: <strong>' + p.remaining_after
+                        + '</strong>. Los días no solicitados seguirán pendientes.';
+                })
+                .catch(function(){ estimate.textContent = 'No se pudo calcular la vista previa.'; });
+        }, 200);
+    }
+    [requestType, requestStart, requestEnd].forEach(function(el){ if(el) el.addEventListener('change', refreshVacationEstimate); });
+
     var tabs = document.querySelectorAll('.emp-req-tab[data-tab]');
     var panels = {
         swap: document.getElementById('empPanelSwap'),
@@ -306,4 +348,3 @@ $absenceRequests = array_values(array_filter($requests, function ($r) {
     });
 })();
 </script>
-

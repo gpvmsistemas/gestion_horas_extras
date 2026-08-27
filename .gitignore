@@ -42,7 +42,20 @@ desktop.ini
 # === Logs ===
 *.log
 /logs/
+/backups/
+/output/
+/storage/private/
 
 # === Archivos temporales de Google Drive ===
 .tmp.driveupload/
 .tmp.drivedownload/
+
+# Entorno local de integración (no versionar)
+hoursapp-moderna/
+paviotti_lanaturaleza*.sql
+# Nóminas de RRHH y credenciales (datos personales reales — repo público)
+Nomina*.xlsx
+*.xlsx
+*.xls
+nomina_credenciales.json
+vacaciones*.json

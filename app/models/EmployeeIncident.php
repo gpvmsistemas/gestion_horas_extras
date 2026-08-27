@@ -95,6 +95,7 @@ class EmployeeIncident {
         if (!$row) {
             return false;
         }
+        if (in_array($row->workflow_status ?? 'draft', ['notified','received','refused'], true)) return false;
         $this->db->query('DELETE FROM employee_incidents WHERE id = :id AND user_id = :user_id');
         $this->db->bind(':id', (int)$id);
         $this->db->bind(':user_id', (int)$userId);

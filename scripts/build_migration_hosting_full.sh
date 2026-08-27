@@ -42,6 +42,8 @@ STEPS=(
   "35|migration_prode_wc2026.sql"
   "36|migration_survey_responses_unique.sql"
   "37|migration_cp_closure_lot_unique.sql"
+  "38|migration_vacation_management_v2.sql"
+  "39|migration_employee_record_complete.sql"
 )
 
 {

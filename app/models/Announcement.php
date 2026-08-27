@@ -22,10 +22,10 @@ class Announcement {
 
     public function create(array $data, array $targets, $createdBy) {
         $this->db->query('INSERT INTO announcements (
-            title, body, image_path, link_url, link_label, starts_at, ends_at,
+            title, body, image_path, video_path, link_url, link_label, starts_at, ends_at,
             display_mode, target_all, send_email, is_active, created_by
         ) VALUES (
-            :title, :body, :image_path, :link_url, :link_label, :starts_at, :ends_at,
+            :title, :body, :image_path, :video_path, :link_url, :link_label, :starts_at, :ends_at,
             :display_mode, :target_all, :send_email, :is_active, :created_by
         )');
         $this->bindAnnouncement($data, $createdBy);
@@ -40,6 +40,7 @@ class Announcement {
     public function update($id, array $data, array $targets) {
         $this->db->query('UPDATE announcements SET
             title = :title, body = :body, image_path = :image_path,
+            video_path = :video_path,
             link_url = :link_url, link_label = :link_label,
             starts_at = :starts_at, ends_at = :ends_at,
             display_mode = :display_mode, target_all = :target_all,
@@ -73,6 +74,7 @@ class Announcement {
         $this->db->bind(':title', trim($data['title'] ?? ''));
         $this->db->bind(':body', $data['body'] ?? '');
         $this->db->bind(':image_path', !empty($data['image_path']) ? $data['image_path'] : null);
+        $this->db->bind(':video_path', !empty($data['video_path']) ? $data['video_path'] : null);
         $this->db->bind(':link_url', !empty($data['link_url']) ? trim($data['link_url']) : null);
         $this->db->bind(':link_label', !empty($data['link_label']) ? trim($data['link_label']) : null);
         $this->db->bind(':starts_at', $data['starts_at']);

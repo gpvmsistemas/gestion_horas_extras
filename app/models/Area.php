@@ -4,8 +4,8 @@ class Area {
     private $db;
     private static $globalReady = null;
 
-    public function __construct() {
-        $this->db = new Database();
+    public function __construct($db = null) {
+        $this->db = $db instanceof Database ? $db : new Database();
     }
 
     public function isSchemaReady() {

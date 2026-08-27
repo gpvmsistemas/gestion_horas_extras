@@ -49,7 +49,7 @@ class Template {
         }
     }
 
-    public function applyTemplateToWeek($templateId, $weekStartDate, $companyId){
+    public function applyTemplateToWeek($templateId, $weekStartDate, $companyId, $branchId = 0){
         $this->db->query('SELECT id FROM schedule_templates WHERE id = :tid AND company_id = :cid LIMIT 1');
         $this->db->bind(':tid', (int)$templateId);
         $this->db->bind(':cid', (int)$companyId);
@@ -57,11 +57,21 @@ class Template {
             return false;
         }
 
+        $branchReady = (new User())->isBranchAssignmentReady() && (new WorkSchedule())->isBranchScheduleReady();
+        $multipleBranches = (new User())->isMultipleBranchAssignmentsReady();
+        $branchJoin = ($branchReady && (int)$branchId > 0) ? ' INNER JOIN users u ON u.id = ste.user_id' : '';
+        $branchWhere = ($branchReady && (int)$branchId > 0)
+            ? ($multipleBranches ? ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)' : ' AND u.branch_id = :branch_id')
+            : '';
         $this->db->query("SELECT ste.* FROM schedule_template_entries ste
             INNER JOIN schedule_templates st ON st.id = ste.template_id
-            WHERE ste.template_id = :template_id AND st.company_id = :company_id");
+            {$branchJoin}
+            WHERE ste.template_id = :template_id AND st.company_id = :company_id{$branchWhere}");
         $this->db->bind(':template_id', (int)$templateId);
         $this->db->bind(':company_id', (int)$companyId);
+        if ($branchReady && (int)$branchId > 0) {
+            $this->db->bind(':branch_id', (int)$branchId);
+        }
         $templateEntries = $this->db->resultSet();
         
         if(empty($templateEntries)) return true; // No hay nada que aplicar
@@ -78,8 +88,9 @@ class Template {
             $this->db->execute($params);
 
             // Insertar los nuevos horarios desde la plantilla
-            $this->db->query('INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes) 
-                             VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes)');
+            $this->db->query($branchReady
+                ? 'INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes, branch_id) VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes, :branch_id)'
+                : 'INSERT INTO employee_schedules (user_id, schedule_date, shift_id, start_time, end_time, type, notes) VALUES (:user_id, :schedule_date, :shift_id, :start_time, :end_time, :type, :notes)');
             
             foreach($templateEntries as $entry){
                 $date = date('Y-m-d', strtotime($weekStartDate . ' +' . ($entry->day_of_week - 1) . ' days'));
@@ -90,6 +101,9 @@ class Template {
                 $this->db->bind(':end_time', $entry->end_time);
                 $this->db->bind(':type', $entry->type);
                 $this->db->bind(':notes', $entry->notes);
+                if ($branchReady) {
+                    $this->db->bind(':branch_id', (int)$branchId > 0 ? (int)$branchId : null);
+                }
                 $this->db->execute();
             }
             $this->db->commit();

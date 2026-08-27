@@ -15,3 +15,9 @@
 // define('DB_USER', 'usuario_hosting');
 // define('DB_PASS', 'contraseña');
 // define('DB_NAME', 'paviotti_lanaturaleza');
+
+/**
+ * Reclutamiento/Vacantes — organizaciones habilitadas (piloto).
+ * Sin definir: solo Moderna. Para el go-live de Paviotti:
+ */
+// define('RECRUITING_ORGS', ['moderna', 'paviotti']);

@@ -142,6 +142,12 @@
             .map(function (el) { return parseInt(el.value, 10); });
     }
 
+    function getCheckedStrings(selector) {
+        return Array.prototype.slice.call(document.querySelectorAll(selector))
+            .filter(function (el) { return el.checked; })
+            .map(function (el) { return el.value; });
+    }
+
     function computeIdsFromFilters() {
         if (targetAll && targetAll.checked) {
             return data.users.map(function (u) { return u.id; });
@@ -149,6 +155,7 @@
         var ids = new Set();
         var companyIds = getCheckedValues('.notif-filter-company');
         var areaIds = getCheckedValues('.notif-filter-area');
+        var employeeGroups = getCheckedStrings('.notif-filter-group');
 
         companyIds.forEach(function (cid) {
             data.users.forEach(function (u) {
@@ -162,6 +169,12 @@
                 if (u.area_id === null || u.area_id !== aid) return;
                 if (area && area.company_id !== null && area.company_id > 0 && u.company_id !== area.company_id) return;
                 ids.add(u.id);
+            });
+        });
+
+        employeeGroups.forEach(function (group) {
+            data.users.forEach(function (u) {
+                if (u.employee_group === group) ids.add(u.id);
             });
         });
 
