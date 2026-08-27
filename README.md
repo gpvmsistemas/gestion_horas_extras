@@ -1,8 +1,21 @@
-# Paviotti RRHH — gestión de personal, asistencia y horas extras
+# Suite P&M — RRHH Paviotti + Red Farmacias Moderna
 
-Sistema web interno de Recursos Humanos para múltiples empresas. Centraliza empleados, planificación horaria, marcaciones, asistencia, horas extras, solicitudes, vacaciones, legajo laboral, recibos, adelantos, capacitación, encuestas, comunicaciones y módulos operativos particulares.
+Sistema web interno de Recursos Humanos para múltiples empresas y **dos
+organizaciones aisladas** (Paviotti/Ecofarma y Red Farmacias Moderna).
+Centraliza empleados, planificación horaria, marcaciones, asistencia, horas
+extras, registro de horas por sucursal, solicitudes, vacaciones, legajo
+laboral, recibos, adelantos, reclutamiento, capacitación, encuestas,
+comunicaciones y módulos operativos particulares.
 
-Este documento está dirigido a desarrolladores, administradores y agentes nuevos que necesiten comprender, mantener o desplegar el proyecto sin contexto previo.
+> [!IMPORTANT]
+> **¿Venís a trabajar sobre la rama `integracion`?** Leé primero
+> [INTEGRACION_SUITE_PM.md](INTEGRACION_SUITE_PM.md): capa organizacional,
+> Registro de Horas, Vacantes/Reclutamiento, nómina Moderna, scripts de
+> migración (`scripts/aplicar_pendientes_vps.php`) y las **cinco diferencias
+> de entorno MariaDB/MySQL** que hay que respetar en cualquier migración
+> nueva. El despliegue al VPS está en [DESPLIEGUE_VPS.md](DESPLIEGUE_VPS.md).
+
+Este documento describe el sistema base y está dirigido a desarrolladores, administradores y agentes nuevos que necesiten comprender, mantener o desplegar el proyecto sin contexto previo.
 
 > [!IMPORTANT]
 > El repositorio contiene una aplicación funcional y una base local ya evolucionada, pero actualmente **no contiene todas las migraciones SQL históricas que el propio código referencia**. La evolución de vacaciones v2 sí está versionada en `migration_vacation_management_v2.sql`; para una instalación completa desde cero todavía hace falta recuperar las migraciones anteriores o un dump autorizado y saneado.
