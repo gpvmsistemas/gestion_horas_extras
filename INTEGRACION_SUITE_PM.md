@@ -287,6 +287,42 @@ legajo ampliado, programa RRHH integral, control de asistencia); desde
 - `6465084` `b7b4c04` — alta CLI de `axel.moderna`.
 - `2ef5fbd` — verificador exhaustivo código↔esquema.
 
+## 10b. Trabajo de Lautaro en el VPS (25/08 → 10/09) — ya integrado
+
+Lautaro desarrolló directamente sobre el árbol del VPS (4 commits allí + 43
+archivos sueltos). Se reconstruyó acá como el commit `59dee47` (rama
+`lautaro-vps-sept`, base `bcd7fa5`) y se mergeó a `integracion`. Qué trae:
+
+- **PWA + Web Push** para el portal del empleado: `public/manifest.php`,
+  `public/sw.js`, `pwa_helper.php`, `WebPushService` (librería
+  `minishlink/web-push` vía Composer), tabla `push_subscriptions`, banners de
+  instalación y de permiso de notificaciones. Requiere claves VAPID en
+  `config.local.php` (`php scripts/generate_vapid_keys.php`) y `composer install`
+  (`vendor/` está ignorado; sin claves el envío se omite en silencio).
+- **Hijos/as del colaborador** (`employee_children`, fecha y sexo) en el perfil.
+- **Licencias por convenio colectivo** (`collective_agreement_leave_types`,
+  categorías médica/familiar/maternidad/...), licencias "solo aviso"
+  (`requires_approval`) y **dorso del certificado** en solicitudes
+  (`requests.certificate_back_path`).
+- **Planilla de vacaciones** (`app/views/vacation/planilla.php`) y panel.
+- **Importador de legajos Paviotti** (`scripts/import_legajos_paviotti.php`).
+- Ajustes en alertas RRHH, solicitudes, notificaciones, perfil mobile-first.
+
+Sus migraciones están cableadas al applier (pasos 12a, 16, 17, 18 —
+`push_subscriptions` lo agregamos nosotros). La unificación de colación corre
+al final para normalizar también sus tablas (venían en `utf8mb4_unicode_ci`).
+
+**Regla de compatibilidad PHP**: el VPS corre 8.4 y el local 7.4. `config.php`
+trae polyfills de `str_starts_with`/`str_ends_with`/`str_contains` para que el
+código escrito contra 8.4 corra en 7.4; sintaxis exclusiva de 8 (`match`,
+`?->`, promoción de constructor, tipos unión) rompe el local — usar `php -l`
+con 7.4 antes de subir.
+
+**Regla de flujo**: no codear sobre el árbol del VPS. Trabajar en la PC, subir
+por rama, y que el VPS solo reciba `git pull origin main` + applier. Si vuelve
+a pasar, el rescate es el de esta vez: rama + commit en el VPS, `git archive`,
+y reconstrucción sobre la base real (`INTEGRACION_SUITE_PM.md` §10b).
+
 ## 11. Pendientes / backlog
 
 - **Repo a PRIVADO** (urgente: es RRHH y el historial referencia el esquema de

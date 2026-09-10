@@ -133,3 +133,21 @@ if (!defined('VAPID_PRIVATE_KEY')) {
 if (!defined('VAPID_SUBJECT')) {
     define('VAPID_SUBJECT', 'mailto:rrhh@rrhhpym.com');
 }
+
+// Polyfills de PHP 8 para entornos con PHP 7.4 (XAMPP local): el código
+// escrito contra el VPS (PHP 8.4) los usa; en 8.x estas definiciones no aplican.
+if (!function_exists('str_starts_with')) {
+    function str_starts_with($haystack, $needle) {
+        return $needle === '' || strncmp((string)$haystack, (string)$needle, strlen($needle)) === 0;
+    }
+}
+if (!function_exists('str_ends_with')) {
+    function str_ends_with($haystack, $needle) {
+        return $needle === '' || substr((string)$haystack, -strlen($needle)) === (string)$needle;
+    }
+}
+if (!function_exists('str_contains')) {
+    function str_contains($haystack, $needle) {
+        return $needle === '' || strpos((string)$haystack, (string)$needle) !== false;
+    }
+}
