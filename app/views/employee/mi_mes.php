@@ -20,6 +20,7 @@ $userId = (int)$_SESSION['user_id'];
     <div class="alert alert-info py-2 small mb-3">
         Vacaciones pendientes: <strong><?php echo vacation_format_days($data['vacation_pending']); ?></strong>
         — <a href="<?php echo URLROOT; ?>/request/index">Solicitar licencia/vacaciones</a>
+        · <a href="<?php echo htmlspecialchars(vacation_planilla_employee_url()); ?>" target="_blank" rel="noopener">Imprimir planilla</a>
     </div>
     <?php endif; ?>
 

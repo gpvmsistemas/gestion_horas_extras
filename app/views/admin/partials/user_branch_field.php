@@ -6,8 +6,8 @@ $branchCompanyModel = new Company();
 $branchCompanies = $data['companies'] ?? $branchCompanyModel->getAllCompanies();
 $selectedBranchIds = isset($data['branch_ids'])
     ? array_map('intval', (array)$data['branch_ids'])
-    : array_map(function ($branch) { return (int)$branch->id; }, $branchUserModel->getBranchAssignmentsForUser((int)($data['user']->id ?? 0)));
-$primaryBranchId = isset($data['branch_id']) ? (int)$data['branch_id'] : (int)($data['user']->branch_id ?? 0);
+    : array_map(function ($branch) { return (int)$branch->id; }, $branchUserModel->getBranchAssignmentsForUser((int)((isset($data['user']) && is_object($data['user'])) ? $data['user']->id : 0)));
+$primaryBranchId = isset($data['branch_id']) ? (int)$data['branch_id'] : (int)((isset($data['user']) && is_object($data['user'])) ? ($data['user']->branch_id ?? 0) : 0);
 $branchesByCompany = [];
 foreach ($branchCompanies as $branchCompany) {
     $branchesByCompany[(int)$branchCompany->id] = array_map(function ($branch) {

@@ -18,6 +18,10 @@
             </p>
         </div>
         <div class="d-flex gap-2">
+            <a href="<?php echo htmlspecialchars(vacation_planilla_staff_url((int)$data['user']->id)); ?>"
+               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">
+                <i class="fas fa-print me-1"></i>Planilla
+            </a>
             <a href="<?php echo URLROOT; ?>/vacationAdmin/vacationSetup/<?php echo (int)$data['user']->id; ?>" class="btn btn-primary btn-sm">
                 <i class="fas fa-edit me-1"></i>Carga / períodos
             </a>
@@ -55,9 +59,12 @@
 
     <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/liquidateUser/<?php echo (int)$data['user']->id; ?>" class="d-inline">
         <?php echo csrf_field(); ?>
+        <?php $currentVacPeriod = vacation_default_target_period_label(); ?>
+        <input type="hidden" name="period_label" value="<?php echo htmlspecialchars($currentVacPeriod); ?>">
         <button type="submit" class="btn btn-outline-secondary btn-sm" <?php echo empty($data['user']->hire_date) ? 'disabled' : ''; ?>>
-            <i class="fas fa-sync me-1"></i>Liquidar período vigente
+            <i class="fas fa-sync me-1"></i>Liquidar período <?php echo htmlspecialchars($currentVacPeriod); ?>
         </button>
     </form>
+    <a href="<?php echo URLROOT; ?>/vacationAdmin/panel" class="btn btn-outline-primary btn-sm ms-1">Panel vacaciones</a>
     <?php endif; ?>
 </div>

@@ -12,6 +12,7 @@ $report = $data['report'] ?? null;
         </div>
     </div>
     <div class="admin-page-actions">
+        <a href="<?php echo URLROOT; ?>/vacationAdmin/reports<?php echo (int)$data['company_id'] > 0 ? '?company_id=' . (int)$data['company_id'] : ''; ?>" class="btn btn-outline-secondary btn-sm">Reporte</a>
         <a href="<?php echo URLROOT; ?>/vacationAdmin/agreements" class="btn btn-outline-secondary btn-sm">Convenios</a>
         <a href="<?php echo URLROOT; ?>/admin/users?company_id=<?php echo (int)$data['company_id']; ?>" class="btn btn-outline-secondary btn-sm">Usuarios</a>
     </div>
@@ -108,6 +109,7 @@ $report = $data['report'] ?? null;
                 <td class="small"><?php echo htmlspecialchars($row['message']); ?></td>
                 <td class="text-end">
                     <?php if (!empty($row['user_id'])): ?>
+                    <a href="<?php echo htmlspecialchars(vacation_planilla_staff_url((int)$row['user_id'])); ?>" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">Planilla</a>
                     <a href="<?php echo URLROOT; ?>/vacationAdmin/vacationSetup/<?php echo (int)$row['user_id']; ?>" class="btn btn-sm btn-outline-primary">Ficha vac.</a>
                     <?php endif; ?>
                 </td>

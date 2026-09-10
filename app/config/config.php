@@ -122,3 +122,14 @@ if (!defined('EXTINTOS_DB_USER')) {
 if (!defined('EXTINTOS_DB_PASS')) {
     define('EXTINTOS_DB_PASS', '');
 }
+
+// Web Push (PWA) — generar con: php scripts/generate_vapid_keys.php
+if (!defined('VAPID_PUBLIC_KEY')) {
+    define('VAPID_PUBLIC_KEY', '');
+}
+if (!defined('VAPID_PRIVATE_KEY')) {
+    define('VAPID_PRIVATE_KEY', '');
+}
+if (!defined('VAPID_SUBJECT')) {
+    define('VAPID_SUBJECT', 'mailto:rrhh@rrhhpym.com');
+}

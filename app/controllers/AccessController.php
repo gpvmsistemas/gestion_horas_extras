@@ -45,7 +45,13 @@ class AccessController {
         $role = access_current_role();
         if (!in_array($role, ['administrador','rrhh'], true)) { $_SESSION['flash_error'] = 'Solo Administrador o RRHH pueden asignar perfiles.'; redirect('admin/editUser/' . (int)$userId); }
         $ok = $this->access->saveScopes((int)$userId, (array)($_POST['scopes'] ?? []), (int)$_SESSION['user_id']);
-        $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $ok ? 'Asignaciones de acceso actualizadas.' : 'Revisá empresa, sucursal, perfil y vigencia.';
+        if ($ok && (int)$userId === (int)($_SESSION['user_id'] ?? 0)) {
+            $fresh = (new User())->getUserById((int)$userId);
+            if ($fresh) {
+                $_SESSION['user_role'] = $fresh->role;
+            }
+        }
+        $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $ok ? 'Asignaciones de acceso actualizadas. El rol de cuenta quedó alineado con el perfil principal.' : 'Revisá empresa, sucursal, perfil y vigencia.';
         redirect('admin/editUser/' . (int)$userId);
     }
 

@@ -118,4 +118,112 @@ class CollectiveAgreement {
         $this->db->bind(':notes', $rule['notes'] ?? null);
         return $this->db->execute();
     }
+
+    public function leaveTypesReady() {
+        $this->db->query("SHOW TABLES LIKE 'collective_agreement_leave_types'");
+        return (bool)$this->db->single();
+    }
+
+    public function leaveTypeRequiresApprovalReady() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        if (!$this->leaveTypesReady()) {
+            $ready = false;
+            return $ready;
+        }
+        $this->db->query("SHOW COLUMNS FROM collective_agreement_leave_types LIKE 'requires_approval'");
+        $ready = (bool)$this->db->single();
+        return $ready;
+    }
+
+    public function getLeaveTypes($agreementId, $activeOnly = true) {
+        if (!$this->leaveTypesReady()) {
+            return [];
+        }
+        $sql = 'SELECT * FROM collective_agreement_leave_types WHERE agreement_id = :aid';
+        if ($activeOnly) {
+            $sql .= ' AND is_active = 1';
+        }
+        $sql .= ' ORDER BY sort_order ASC, name ASC';
+        $this->db->query($sql);
+        $this->db->bind(':aid', (int)$agreementId);
+        return $this->db->resultSet();
+    }
+
+    public function getLeaveTypeById($id) {
+        if (!$this->leaveTypesReady() || (int)$id <= 0) {
+            return null;
+        }
+        $this->db->query('SELECT * FROM collective_agreement_leave_types WHERE id = :id');
+        $this->db->bind(':id', (int)$id);
+        return $this->db->single();
+    }
+
+    public function saveLeaveType(array $data) {
+        if (!$this->leaveTypesReady()) {
+            return false;
+        }
+        $maxYear = trim((string)($data['max_days_per_year'] ?? ''));
+        $maxEvent = trim((string)($data['max_days_per_event'] ?? ''));
+        $minNotice = trim((string)($data['min_notice_days'] ?? ''));
+        $requiresApproval = !isset($data['requires_approval']) || !empty($data['requires_approval']) ? 1 : 0;
+        $approvalSql = $this->leaveTypeRequiresApprovalReady() ? ', requires_approval = :requires_approval' : '';
+        if (!empty($data['id'])) {
+            $this->db->query('
+                UPDATE collective_agreement_leave_types SET
+                    code = :code, name = :name, description = :description, legal_reference = :legal_reference,
+                    category = :category, is_paid = :is_paid, requires_certificate = :requires_certificate'
+                    . $approvalSql . ',
+                    max_days_per_year = :max_year, max_days_per_event = :max_event, min_notice_days = :min_notice,
+                    day_count_mode = :day_count_mode, sort_order = :sort_order, is_active = :is_active, notes = :notes
+                WHERE id = :id AND agreement_id = :aid
+            ');
+            $this->db->bind(':id', (int)$data['id']);
+            $this->db->bind(':aid', (int)$data['agreement_id']);
+        } else {
+            $insertApprovalCols = $this->leaveTypeRequiresApprovalReady() ? ', requires_approval' : '';
+            $insertApprovalVals = $this->leaveTypeRequiresApprovalReady() ? ', :requires_approval' : '';
+            $this->db->query('
+                INSERT INTO collective_agreement_leave_types
+                    (agreement_id, code, name, description, legal_reference, category, is_paid, requires_certificate'
+                    . $insertApprovalCols . ',
+                     max_days_per_year, max_days_per_event, min_notice_days, day_count_mode, sort_order, is_active, notes)
+                VALUES
+                    (:aid, :code, :name, :description, :legal_reference, :category, :is_paid, :requires_certificate'
+                    . $insertApprovalVals . ',
+                     :max_year, :max_event, :min_notice, :day_count_mode, :sort_order, :is_active, :notes)
+            ');
+            $this->db->bind(':aid', (int)$data['agreement_id']);
+        }
+        $this->db->bind(':code', strtoupper(trim($data['code'] ?? '')));
+        $this->db->bind(':name', trim($data['name'] ?? ''));
+        $this->db->bind(':description', trim($data['description'] ?? '') ?: null);
+        $this->db->bind(':legal_reference', trim($data['legal_reference'] ?? '') ?: null);
+        $this->db->bind(':category', $data['category'] ?? 'other');
+        $this->db->bind(':is_paid', !empty($data['is_paid']) ? 1 : 0);
+        $this->db->bind(':requires_certificate', !empty($data['requires_certificate']) ? 1 : 0);
+        if ($this->leaveTypeRequiresApprovalReady()) {
+            $this->db->bind(':requires_approval', $requiresApproval);
+        }
+        $this->db->bind(':max_year', $maxYear === '' ? null : (float)$maxYear);
+        $this->db->bind(':max_event', $maxEvent === '' ? null : (float)$maxEvent);
+        $this->db->bind(':min_notice', $minNotice === '' ? null : (int)$minNotice);
+        $this->db->bind(':day_count_mode', $data['day_count_mode'] ?? 'calendar');
+        $this->db->bind(':sort_order', (int)($data['sort_order'] ?? 0));
+        $this->db->bind(':is_active', !isset($data['is_active']) || !empty($data['is_active']) ? 1 : 0);
+        $this->db->bind(':notes', trim($data['notes'] ?? '') ?: null);
+        return $this->db->execute();
+    }
+
+    public function deleteLeaveType($agreementId, $leaveTypeId) {
+        if (!$this->leaveTypesReady()) {
+            return false;
+        }
+        $this->db->query('DELETE FROM collective_agreement_leave_types WHERE id = :id AND agreement_id = :aid');
+        $this->db->bind(':id', (int)$leaveTypeId);
+        $this->db->bind(':aid', (int)$agreementId);
+        return $this->db->execute();
+    }
 }

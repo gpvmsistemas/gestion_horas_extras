@@ -15,6 +15,69 @@ class AccessControl {
         ];
     }
 
+    /** Perfil de alcance → rol de cuenta (users.role) para compatibilidad. */
+    public static function legacyRoleFromAccessRole($accessRole) {
+        $accessRole = (string)$accessRole;
+        if (in_array($accessRole, ['administrador', 'rrhh'], true)) {
+            return 'admin';
+        }
+        if (in_array($accessRole, ['encargado', 'coordinador'], true)) {
+            return 'supervisor';
+        }
+        return 'empleado';
+    }
+
+    /** Rol de cuenta → perfil de alcance por defecto. */
+    public static function accessRoleFromLegacyRole($legacyRole) {
+        $legacyRole = (string)$legacyRole;
+        if ($legacyRole === 'admin') {
+            return 'administrador';
+        }
+        if ($legacyRole === 'supervisor') {
+            return 'encargado';
+        }
+        return 'operario';
+    }
+
+    /**
+     * Interpreta el select de alta/edición: puede venir el perfil de alcance
+     * o el rol legacy. Devuelve ambos para persistirlos juntos.
+     */
+    public static function normalizePostedRole($posted) {
+        $posted = trim((string)$posted);
+        if ($posted !== '' && isset(self::roles()[$posted])) {
+            return [
+                'legacy' => self::legacyRoleFromAccessRole($posted),
+                'access' => $posted,
+            ];
+        }
+        $legacy = in_array($posted, ['admin', 'supervisor', 'empleado'], true) ? $posted : 'empleado';
+        return [
+            'legacy' => $legacy,
+            'access' => self::accessRoleFromLegacyRole($legacy),
+        ];
+    }
+
+    public static function accessRoleLabel($accessRole, $legacyRole = '') {
+        $accessRole = (string)$accessRole;
+        if ($accessRole !== '' && isset(self::roles()[$accessRole])) {
+            return self::roles()[$accessRole];
+        }
+        $legacyLabels = ['admin' => 'Administrador', 'supervisor' => 'Supervisor', 'empleado' => 'Empleado'];
+        $legacyRole = (string)$legacyRole;
+        return $legacyLabels[$legacyRole] ?? ($legacyRole !== '' ? ucfirst($legacyRole) : 'Operario');
+    }
+
+    /** Chip del listado (admin / supervisor / empleado) a partir del perfil efectivo. */
+    public static function listFilterGroup($accessRole, $legacyRole = '') {
+        $accessRole = (string)$accessRole;
+        if ($accessRole !== '' && isset(self::roles()[$accessRole])) {
+            return self::legacyRoleFromAccessRole($accessRole);
+        }
+        $legacyRole = (string)$legacyRole;
+        return in_array($legacyRole, ['admin', 'supervisor', 'empleado'], true) ? $legacyRole : 'empleado';
+    }
+
     public static function portalFeatures() {
         return [
             'pay_stubs' => 'Ver recibos de sueldo', 'schedule' => 'Ver su horario',
@@ -123,11 +186,42 @@ class AccessControl {
             $this->db->query('INSERT INTO user_access_scopes (user_id, company_id, branch_id, access_role, is_primary, is_active, starts_on, ends_on, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
             foreach ($clean as $row) $this->db->execute(array_merge([$userId], $row, [$actorId ?: null]));
             $primary = $clean[0]; foreach ($clean as $row) if ($row[3]) { $primary = $row; break; }
-            $this->db->query('UPDATE users SET company_id = ?, branch_id = ? WHERE id = ?');
-            $this->db->execute([$primary[0], $primary[1], $userId]);
+            $this->db->query('UPDATE users SET company_id = ?, branch_id = ?, role = ? WHERE id = ?');
+            $this->db->execute([$primary[0], $primary[1], self::legacyRoleFromAccessRole($primary[2]), $userId]);
             $this->audit($actorId, $userId, 'scope_assignment_saved', $primary[0], $primary[1], ['count'=>count($clean)]);
             $this->db->commit(); return true;
         } catch (Throwable $e) { $this->db->rollBack(); return false; }
+    }
+
+    /**
+     * Alinea el perfil primario con el select de la ficha, sin borrar el resto
+     * de asignaciones. Si no hay alcances, no crea uno nuevo (eso lo hace el alta).
+     */
+    public function syncPrimaryAccessRole($userId, $accessRole) {
+        if (!$this->isReady() || !isset(self::roles()[$accessRole])) {
+            return false;
+        }
+        $userId = (int)$userId;
+        $scopes = $this->getScopesForUser($userId, false);
+        $primary = null;
+        foreach ($scopes as $scope) {
+            if ((int)$scope->is_primary === 1) {
+                $primary = $scope;
+                break;
+            }
+        }
+        if (!$primary && $scopes) {
+            $primary = $scopes[0];
+        }
+        if (!$primary) {
+            return true;
+        }
+        $this->db->query('UPDATE user_access_scopes SET access_role = ?, is_primary = 1 WHERE id = ?');
+        if (!$this->db->execute([$accessRole, (int)$primary->id])) {
+            return false;
+        }
+        $this->db->query('UPDATE users SET role = ? WHERE id = ?');
+        return $this->db->execute([self::legacyRoleFromAccessRole($accessRole), $userId]);
     }
 
     public function canManageScope($actorId, $companyId, $branchId = 0) {

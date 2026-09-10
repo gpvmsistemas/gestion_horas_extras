@@ -44,8 +44,12 @@ class EmployeeRecord {
     }
 
     /** Snapshot agregado para /admin/users; evita consultas N+1 por empleado. */
-    public function getUserListMetadata($companyId = null) {
+    public function getUserListMetadata($companyId = null, array $userIds = []) {
         if (!$this->isReady()) return [];
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($userIds === [] && (int)$companyId <= 0) {
+            return [];
+        }
         $branchSelect = "'' AS branch_names, 0 AS branch_count";
         if ($this->tableExists('employee_branch_assignments')) {
             $branchSelect = "(SELECT GROUP_CONCAT(b.name ORDER BY eba.is_primary DESC,b.name SEPARATOR ' · ')
@@ -69,9 +73,16 @@ class EmployeeRecord {
             LEFT JOIN areas a ON a.id=eca.area_id
             LEFT JOIN users su ON su.id=eca.supervisor_user_id";
         $params = [];
-        if ((int)$companyId > 0) {
-            $sql .= ' WHERE u.company_id=?';
+        $where = [];
+        if ($userIds) {
+            $where[] = 'u.id IN (' . implode(',', array_fill(0, count($userIds), '?')) . ')';
+            $params = array_merge($params, $userIds);
+        } elseif ((int)$companyId > 0) {
+            $where[] = 'u.company_id=?';
             $params[] = (int)$companyId;
+        }
+        if ($where) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
         }
         $this->db->query($sql);
         $rows = $this->db->resultSet($params);
@@ -161,12 +172,18 @@ class EmployeeRecord {
         $text = function ($key, $max = 255) use ($post) {
             return mb_substr(trim((string)($post[$key] ?? '')), 0, $max);
         };
+        $employmentType = $text('employment_type', 20);
+        $workMode = $text('work_mode', 20);
+        $employmentStatus = $text('employment_status', 20);
+        $addressVerification = $text('address_verification_status', 20);
+        $healthMemberRole = $text('health_member_role', 20);
+        $healthStatus = $text('health_status', 20);
         return [
             'employee_number' => $text('employee_number', 50),
             'position_id' => max(0, (int)($post['position_id'] ?? 0)),
-            'employment_type' => $text('employment_type', 20),
-            'work_mode' => $text('work_mode', 20),
-            'employment_status' => $text('employment_status', 20),
+            'employment_type' => $employmentType !== '' ? $employmentType : 'permanente',
+            'work_mode' => $workMode !== '' ? $workMode : 'presencial',
+            'employment_status' => $employmentStatus !== '' ? $employmentStatus : 'activo',
             'seniority_date' => $text('seniority_date', 10),
             'employment_end_date' => $text('employment_end_date', 10),
             'termination_reason' => $text('termination_reason'),
@@ -179,12 +196,12 @@ class EmployeeRecord {
             'country_code' => strtoupper($text('country_code', 2)) ?: 'AR',
             'reference_notes' => $text('reference_notes'),
             'latitude' => $text('latitude', 20), 'longitude' => $text('longitude', 20),
-            'address_verification_status' => $text('address_verification_status', 20),
+            'address_verification_status' => $addressVerification !== '' ? $addressVerification : 'pendiente',
             'health_insurer_id' => max(0, (int)($post['health_insurer_id'] ?? 0)),
             'health_plan_id' => max(0, (int)($post['health_plan_id'] ?? 0)),
             'affiliate_number' => $text('affiliate_number', 80),
-            'health_member_role' => $text('health_member_role', 20),
-            'health_status' => $text('health_status', 20),
+            'health_member_role' => $healthMemberRole !== '' ? $healthMemberRole : 'titular',
+            'health_status' => $healthStatus !== '' ? $healthStatus : 'activa',
             'health_start_date' => $text('health_start_date', 10),
             'health_end_date' => $text('health_end_date', 10),
             'contribution_redirected' => !empty($post['contribution_redirected']) ? 1 : 0,
@@ -214,7 +231,10 @@ class EmployeeRecord {
             $this->db->query('SELECT 1 FROM job_positions WHERE id = ? AND is_active = 1 AND (company_id IS NULL OR company_id = ?)');
             if (!$this->db->single([$data['position_id'], (int)$companyId])) $errors['position_id'] = 'El puesto no pertenece a la empresa.';
         }
-        if ($data['supervisor_user_id'] === (int)$userId) $errors['supervisor_user_id'] = 'El empleado no puede supervisarse a sí mismo.';
+        // En altas $userId es 0; no comparar jefe "sin definir" (0) consigo mismo.
+        if ((int)$userId > 0 && (int)$data['supervisor_user_id'] === (int)$userId) {
+            $errors['supervisor_user_id'] = 'El empleado no puede supervisarse a sí mismo.';
+        }
         if ($data['supervisor_user_id'] > 0) {
             $this->db->query("SELECT 1 FROM users WHERE id=? AND company_id=? AND is_active=1 AND role IN ('supervisor','admin')");
             if (!$this->db->single([$data['supervisor_user_id'], (int)$companyId])) $errors['supervisor_user_id'] = 'El supervisor no pertenece a la empresa o no tiene un rol válido.';
@@ -253,11 +273,29 @@ class EmployeeRecord {
             }
             $this->saveAddress($userId, $data);
             $this->saveCoverage($userId, $assignmentId, $data);
+            $this->syncUserEmploymentProfile($userId, $agreementId, $hireDate);
             $this->db->commit();
             return true;
         } catch (Throwable $e) {
             $this->db->rollBack();
             return false;
+        }
+    }
+
+    private function syncUserEmploymentProfile($userId, $agreementId, $hireDate) {
+        $userModel = new User($this->db);
+        if (!$userModel->isVacationProfileReady()) {
+            return;
+        }
+        $agreementValue = (int)$agreementId > 0 ? (int)$agreementId : null;
+        $hireValue = $hireDate ?: null;
+        if ($userModel->isAgreementIdReady()) {
+            $this->db->query('UPDATE users SET agreement_id = ? WHERE id = ?');
+            $this->db->execute([$agreementValue, (int)$userId]);
+        }
+        if ($hireValue !== null) {
+            $this->db->query('UPDATE users SET hire_date = ? WHERE id = ?');
+            $this->db->execute([$hireValue, (int)$userId]);
         }
     }
 

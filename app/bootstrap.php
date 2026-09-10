@@ -22,6 +22,7 @@ require_once 'helpers/learning_helper.php';
 require_once 'helpers/overtime_helper.php';
 require_once 'helpers/overtime_visibility_helper.php';
 require_once 'helpers/notifications_helper.php';
+require_once 'helpers/pwa_helper.php';
 require_once 'helpers/uploads_security_helper.php';
 require_once 'helpers/incidents_helper.php';
 require_once 'helpers/vacation_helper.php';
@@ -37,6 +38,7 @@ require_once 'helpers/employee_portal_helper.php';
 require_once 'helpers/salary_advance_helper.php';
 require_once 'helpers/access_control_helper.php';
 require_once 'helpers/org_helper.php';
+require_once 'helpers/employee_children_helper.php';
 
 $composerAutoload = dirname(__DIR__) . '/vendor/autoload.php';
 if (file_exists($composerAutoload)) {
@@ -47,6 +49,7 @@ require_once 'services/LearningAssignmentService.php';
 require_once 'services/NotificationTargetService.php';
 require_once 'services/AnnouncementDisplayService.php';
 require_once 'services/MailService.php';
+require_once 'services/WebPushService.php';
 
 // 3. Autoload de Clases (Core, Controladores y Modelos)
 // Esta función se ejecuta automáticamente cuando se intenta usar una clase

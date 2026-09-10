@@ -312,14 +312,19 @@ function notify_course_published($courseId) {
         if ($notif->existsForUser($uid, 'course', (int)$courseId)) {
             continue;
         }
+        $title = notification_apply_placeholders($titleTpl, $uid);
+        $body = notification_apply_placeholders($bodyTpl, $uid);
         if ($notif->create([
             'user_id' => $uid,
-            'title' => notification_apply_placeholders($titleTpl, $uid),
-            'body' => notification_apply_placeholders($bodyTpl, $uid),
+            'title' => $title,
+            'body' => $body,
             'link_url' => $link,
             'type' => 'course',
             'reference_id' => (int)$courseId,
         ])) {
+            if (function_exists('push_notify_user')) {
+                push_notify_user($uid, $title, $body, $link);
+            }
             $sent++;
         }
     }

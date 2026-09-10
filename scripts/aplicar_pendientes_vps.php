@@ -484,6 +484,11 @@ foreach ($fichaCols as $colName => $clause) {
         });
 }
 
+// ── 12a · Hijos/as del colaborador (fecha + sexo) ───────────────────────────
+$paso('employee_children (hijos/as)',
+    fn() => $hasTab('employee_children'),
+    fn() => $pdo->exec(file_get_contents($root . '/migration_employee_children.sql')));
+
 // ── 12b · Certificado adjunto en períodos de estado (licencias) ─────────────
 $paso('employee_status_periods.attachment_path (certificados de licencia)',
     fn() => !$hasTab('employee_status_periods') || $hasCol('employee_status_periods', 'attachment_path'),
@@ -786,6 +791,68 @@ $paso('Colación unificada utf8mb4_general_ci (evita error 1267 en MySQL 8)',
             $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
         }
         echo '                (' . count($tablas) . " tabla(s) convertidas)\n";
+    });
+
+// ── 16 · Licencias por convenio colectivo ───────────────────────────────────
+$paso('Licencias por convenio (collective_agreement_leave_types)',
+    function () use ($hasTab, $scalar) {
+        if (!$hasTab('collective_agreement_leave_types')) {
+            return false;
+        }
+        return (int)$scalar("SELECT COUNT(*) FROM collective_agreement_leave_types") >= 10;
+    },
+    function () use ($pdo, $hasCol, $hasIdx) {
+        if (!$hasCol('requests', 'agreement_leave_type_id')) {
+            $pdo->exec('ALTER TABLE requests ADD COLUMN agreement_leave_type_id INT UNSIGNED NULL AFTER request_type_id');
+        }
+        if (!$hasIdx('requests', 'idx_requests_agreement_leave')) {
+            $pdo->exec('ALTER TABLE requests ADD INDEX idx_requests_agreement_leave (agreement_leave_type_id)');
+        }
+        $sql = file_get_contents(dirname(__DIR__) . '/migration_collective_agreement_leave_types.sql');
+        if ($sql === false || trim($sql) === '') {
+            throw new RuntimeException('No se encontró migration_collective_agreement_leave_types.sql');
+        }
+        foreach (array_filter(array_map('trim', preg_split('/;\s*\n/', $sql))) as $stmt) {
+            $lines = [];
+            foreach (explode("\n", $stmt) as $line) {
+                $trim = ltrim($line);
+                if ($trim === '' || str_starts_with($trim, '--')) {
+                    continue;
+                }
+                $lines[] = $line;
+            }
+            $stmt = trim(implode("\n", $lines));
+            if ($stmt === '') {
+                continue;
+            }
+            $pdo->exec($stmt);
+        }
+    });
+
+// ── 17 · Dorso de certificado en solicitudes ─────────────────────────────────
+$paso('Dorso de certificado (requests.certificate_back_path)',
+    function () use ($hasCol) {
+        return $hasCol('requests', 'certificate_back_path');
+    },
+    function () use ($pdo) {
+        $pdo->exec('ALTER TABLE requests ADD COLUMN certificate_back_path VARCHAR(255) NULL AFTER certificate_path');
+    });
+
+// ── 18 · Licencias solo aviso (requires_approval) ────────────────────────────
+$paso('Licencias solo aviso (requires_approval)',
+    function () use ($hasCol) {
+        return $hasCol('collective_agreement_leave_types', 'requires_approval');
+    },
+    function () use ($pdo) {
+        $pdo->exec('ALTER TABLE collective_agreement_leave_types
+            ADD COLUMN requires_approval TINYINT(1) NOT NULL DEFAULT 1
+            AFTER requires_certificate');
+        $pdo->exec("UPDATE collective_agreement_leave_types SET requires_approval = 0 WHERE UPPER(code) = 'ENFERMEDAD'");
+        $pdo->exec("UPDATE requests r
+            INNER JOIN collective_agreement_leave_types alt ON alt.id = r.agreement_leave_type_id
+            SET r.status = 'Aprobado'
+            WHERE r.status = 'Pendiente' AND alt.requires_approval = 0");
+        $pdo->exec("UPDATE collective_agreement_leave_types SET name = 'Enfermedad' WHERE UPPER(code) = 'ENFERMEDAD'");
     });
 
 echo "\nListo. Ahora: php scripts/verificar_esquema_vps.php\n";

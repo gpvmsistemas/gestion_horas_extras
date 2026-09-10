@@ -268,30 +268,84 @@ class EmployeeController {
         $this->view('employee/dashboard', $data);
     }
 
-    public function profile() {
+    private function requireEmployeeProfileEdit() {
         if (function_exists('access_portal_feature_allowed') && !access_portal_feature_allowed('profile_edit', true)) {
             $_SESSION['flash_error'] = 'La edición de perfil no está disponible.';
             redirect('employee/index');
         }
+    }
+
+    public function profile() {
+        $this->requireEmployeeProfileEdit();
         $user = $this->userModel->getUserById($_SESSION['user_id']);
         $companyName = null;
         if ($user && !empty($user->company_id)) {
             $companyName = (new Company())->getNameById($user->company_id);
         }
-        $this->view('employee/profile', ['user' => $user, 'company_name' => $companyName]);
+        $childModel = new EmployeeChild();
+        $children = $childModel->isReady() ? $childModel->getByUserId((int)$_SESSION['user_id']) : [];
+        $this->view('employee/profile', [
+            'user' => $user,
+            'company_name' => $companyName,
+            'profile_extended_ready' => $this->userModel->isProfileExtendedReady(),
+            'personal_file_ready' => $this->userModel->isPersonalFileReady(),
+            'employee_children_ready' => $childModel->isReady(),
+            'employee_children' => $children,
+            'has_children' => count($children) > 0,
+        ]);
+    }
+
+    /** Compatibilidad: ruta anterior unificada en profile. */
+    public function misDatos() {
+        redirect('employee/profile');
+    }
+
+    /** Compatibilidad: POST anterior delegado en updateProfile. */
+    public function updateMisDatos() {
+        return $this->updateProfile();
     }
 
     public function updateProfile() {
-        if (function_exists('access_portal_feature_allowed') && !access_portal_feature_allowed('profile_edit', true)) {
-            $_SESSION['flash_error'] = 'La edición de perfil no está disponible.';
-            redirect('employee/index');
-        }
+        $this->requireEmployeeProfileEdit();
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             redirect('employee/profile');
         }
         csrf_verify();
         $userId = (int)$_SESSION['user_id'];
-        $data = [];
+        $profileData = [];
+        $personalSaved = false;
+        $accountSaved = false;
+
+        if ($this->userModel->isProfileExtendedReady()) {
+            $profile = User::profileFromPost($_POST);
+            unset($profile['hr_notes'], $profile['children_count']);
+            if (!$this->userModel->isPersonalFileReady()) {
+                unset($profile['marital_status'], $profile['emergency_contact_relationship']);
+            }
+            $errors = User::validateSelfServiceProfile($profile);
+            if ($errors !== []) {
+                $_SESSION['flash_error'] = implode(' ', $errors);
+                redirect('employee/profile');
+            }
+            $personalSaved = $this->userModel->updateEmployeePersonalData($userId, $profile);
+
+            $childModel = new EmployeeChild();
+            if ($childModel->isReady() && $this->userModel->isPersonalFileReady()) {
+                $hasChildren = !empty($_POST['has_children']);
+                $rows = $hasChildren ? EmployeeChild::rowsFromPost($_POST) : [];
+                $childErrors = EmployeeChild::validateRows($rows, $hasChildren);
+                if ($childErrors !== []) {
+                    $_SESSION['flash_error'] = implode(' ', $childErrors);
+                    redirect('employee/profile');
+                }
+                if (!$childModel->saveForUser($userId, $rows)) {
+                    $_SESSION['flash_error'] = 'No se pudieron guardar los datos de hijos/as.';
+                    redirect('employee/profile');
+                }
+                $personalSaved = true;
+            }
+        }
+
         $password = postString('password');
         $password2 = postString('password_confirm');
         if ($password !== '') {
@@ -303,7 +357,7 @@ class EmployeeController {
                 $_SESSION['flash_error'] = 'Las contraseñas no coinciden.';
                 redirect('employee/profile');
             }
-            $data['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+            $profileData['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
         }
         if (!empty($_FILES['profile_picture']['name']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
             $valid = uploads_validate_uploaded_file(
@@ -319,19 +373,21 @@ class EmployeeController {
                 }
                 $filename = 'user_' . $userId . '_' . time() . '.' . $valid['ext'];
                 if (move_uploaded_file($_FILES['profile_picture']['tmp_name'], $avatarDir . $filename)) {
-                    $data['profile_picture'] = $filename;
+                    $profileData['profile_picture'] = $filename;
                     $_SESSION['user_profile_picture'] = $filename;
                 }
             }
         }
-        if (empty($data)) {
-            $_SESSION['flash_error'] = 'No hay cambios para guardar.';
-            redirect('employee/profile');
+        if ($profileData !== []) {
+            $accountSaved = $this->userModel->updateEmployeeProfile($userId, $profileData);
         }
-        if ($this->userModel->updateEmployeeProfile($userId, $data)) {
-            $_SESSION['flash_success'] = 'Perfil actualizado.';
+
+        if (!$personalSaved && !$accountSaved && $profileData === [] && !$this->userModel->isProfileExtendedReady()) {
+            $_SESSION['flash_error'] = 'No hay cambios para guardar.';
+        } elseif (!$personalSaved && !$accountSaved) {
+            $_SESSION['flash_error'] = 'No se pudieron guardar los cambios.';
         } else {
-            $_SESSION['flash_error'] = 'No se pudo actualizar el perfil.';
+            $_SESSION['flash_success'] = 'Perfil actualizado.';
         }
         redirect('employee/profile');
     }
@@ -440,6 +496,82 @@ class EmployeeController {
             $_SESSION['flash_success'] = 'Notificaciones marcadas como leídas.';
         }
         redirect('employee/notifications');
+    }
+
+    /**
+     * Alta/baja de suscripción Web Push (PWA).
+     */
+    public function pushSubscription() {
+        header('Content-Type: application/json; charset=utf-8');
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['ok' => false, 'error' => 'method']);
+            return;
+        }
+        csrf_verify();
+        if (!function_exists('push_subscriptions_ready') || !push_subscriptions_ready()) {
+            echo json_encode(['ok' => false, 'error' => 'schema']);
+            return;
+        }
+        if (!function_exists('pwa_push_configured') || !pwa_push_configured()) {
+            echo json_encode(['ok' => false, 'error' => 'vapid']);
+            return;
+        }
+
+        $userId = (int)$_SESSION['user_id'];
+        $action = trim((string)($_POST['action'] ?? ''));
+        $endpoint = trim((string)($_POST['endpoint'] ?? ''));
+        $model = new PushSubscription();
+
+        if ($action === 'unsubscribe') {
+            if ($endpoint === '') {
+                echo json_encode(['ok' => false, 'error' => 'endpoint']);
+                return;
+            }
+            $ok = $model->deleteByEndpoint($userId, $endpoint);
+            echo json_encode(['ok' => $ok]);
+            return;
+        }
+
+        if ($action !== 'subscribe') {
+            echo json_encode(['ok' => false, 'error' => 'action']);
+            return;
+        }
+
+        $publicKey = trim((string)($_POST['public_key'] ?? ''));
+        $authToken = trim((string)($_POST['auth_token'] ?? ''));
+        if ($endpoint === '' || $publicKey === '' || $authToken === '') {
+            echo json_encode(['ok' => false, 'error' => 'payload']);
+            return;
+        }
+
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? (string)$_SERVER['HTTP_USER_AGENT'] : null;
+        $ok = $model->upsert($userId, $endpoint, $publicKey, $authToken, $ua);
+        echo json_encode(['ok' => (bool)$ok]);
+    }
+
+    public function notificationUnreadCount() {
+        header('Content-Type: application/json; charset=utf-8');
+        if (!$this->userNotificationModel) {
+            echo json_encode(['unread' => 0]);
+            return;
+        }
+        $unread = function_exists('employee_portal_count_visible_unread')
+            ? employee_portal_count_visible_unread((int)$_SESSION['user_id'])
+            : $this->userNotificationModel->countUnread((int)$_SESSION['user_id']);
+        echo json_encode(['unread' => (int)$unread]);
+    }
+
+    public function pushStatus() {
+        header('Content-Type: application/json; charset=utf-8');
+        $subscribed = false;
+        if (function_exists('push_subscriptions_ready') && push_subscriptions_ready()) {
+            $subscribed = (new PushSubscription())->countByUserId((int)$_SESSION['user_id']) > 0;
+        }
+        echo json_encode([
+            'push_ready' => function_exists('pwa_push_ready') && pwa_push_ready(),
+            'subscribed' => $subscribed,
+        ]);
     }
 
     public function pendingAnnouncements() {

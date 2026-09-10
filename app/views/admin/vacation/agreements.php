@@ -65,6 +65,26 @@
                     </tbody>
                 </table>
                 <?php endif; ?>
+                <?php if (!empty($data['leave_types_ready'])): ?>
+                <div class="mt-3">
+                    <p class="small fw-semibold mb-1"><i class="fas fa-file-medical me-1"></i>Licencias del convenio</p>
+                    <?php if (empty($ag->leave_types)): ?>
+                    <p class="text-warning small mb-0">Sin licencias cargadas.</p>
+                    <?php else: ?>
+                    <ul class="small mb-0 ps-3">
+                        <?php foreach (array_slice($ag->leave_types, 0, 6) as $leave): ?>
+                        <li class="<?php echo empty($leave->is_active) ? 'text-muted' : ''; ?>">
+                            <?php echo htmlspecialchars($leave->name); ?>
+                            <?php if (empty($leave->is_active)): ?><span class="badge bg-secondary">Inactiva</span><?php endif; ?>
+                        </li>
+                        <?php endforeach; ?>
+                        <?php if (count($ag->leave_types) > 6): ?>
+                        <li class="text-muted">+<?php echo count($ag->leave_types) - 6; ?> más…</li>
+                        <?php endif; ?>
+                    </ul>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
         <?php endforeach; ?>
@@ -135,9 +155,9 @@
                     Crea el período vigente y calcula vacaciones para <strong>todos los empleados activos</strong>
                     de la empresa seleccionada arriba. Excluye inactivos (despido / renuncia).
                 </p>
-                <a href="<?php echo URLROOT; ?>/vacationAdmin/liquidateCompanyBatch?company_id=<?php echo (int)$data['company_id']; ?>"
+                <a href="<?php echo URLROOT; ?>/vacationAdmin/panel"
                    class="btn btn-success btn-sm w-100">
-                    <i class="fas fa-users-cog me-1"></i>Liquidar empresa completa
+                    <i class="fas fa-users-cog me-1"></i>Panel de vacaciones / liquidar
                 </a>
             </div>
         </div>

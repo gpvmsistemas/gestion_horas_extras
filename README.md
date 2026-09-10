@@ -34,10 +34,12 @@ Este documento describe el sistema base y está dirigido a desarrolladores, admi
 - La asistencia combina planificación (`employee_schedules`) con marcaciones (`clock_events`).
 - Las marcaciones pueden sincronizarse desde una API externa de relojes.
 - Vacaciones usa convenios, reglas por antigüedad, períodos y un ledger de movimientos.
+- Las licencias por convenio (enfermedad, maternidad, etc.) se gestionan en `/request/index?tab=absence`; la enfermedad se registra sin aprobación previa de RR. HH.
 - Varios módulos dependen de tablas opcionales y se deshabilitan si su esquema no está disponible.
 - `AdminController.php` concentra gran parte de la lógica histórica y debe modificarse con cuidado.
-- Vacaciones v2 tiene una prueba de aceptación transaccional; el resto del sistema aún no posee una suite automatizada completa ni `composer.lock`.
-- Antes de cualquier despliegue, leer las secciones **Estado de migraciones**, **Seguridad** y **Problemas conocidos**.
+- Vacaciones v2 tiene una prueba de aceptación transaccional; el resto del sistema aún no posee una suite automatizada completa.
+- **PWA instalable** en el portal (`manifest.php`, `sw.js`): acceso desde pantalla de inicio y **Web Push** a empleados suscriptos cuando RR. HH. envía broadcasts, recibos o cursos.
+- Antes de cualquier despliegue, leer las secciones **Estado de migraciones**, **Seguridad**, **PWA y Web Push** y **Problemas conocidos**.
 
 ## 2. Capacidades funcionales
 
@@ -49,7 +51,8 @@ Este documento describe el sistema base y está dirigido a desarrolladores, admi
 | Marcaciones | Sincronización, mapeo de reloj a usuario, caché, entradas/salidas y dispositivos | Funcional si la API está configurada |
 | Asistencia | Tardanzas, ausencias, salida anticipada, falta de salida, licencias y justificaciones | Funcional |
 | Horas extras | Carga del empleado, cálculo 50/100 %, revisión, cierre y exportación | Funcional con reglas a revisar |
-| Solicitudes | Vacaciones, cambio de turno, llegada tardía, salida temprana, examen y otros motivos | Funcional |
+| Solicitudes | Vacaciones, licencias por convenio, cambio de turno, llegada tardía, salida temprana, examen y otros motivos | Funcional |
+| Licencias por convenio | Catálogo por CCT, límites anuales/por evento, certificado médico (frente/dorso), enfermedad como solo aviso | Funcional desde 2026-08 |
 | Vacaciones | Convenios precargados, períodos anuales, saldos históricos, créditos, FIFO, solicitudes parciales y tablero multiempresa | Implementado en vacaciones v2; las reglas deben validarse ante cambios normativos |
 | Incidencias | Llamado de atención, sanción, suspensión, telegrama de despido y adjuntos | Registro documental; no es un offboarding completo |
 | Sugerencias | Buzón por empresa sin guardar el usuario emisor | Básico; sin workflow de respuesta |
@@ -57,7 +60,8 @@ Este documento describe el sistema base y está dirigido a desarrolladores, admi
 | Adelantos | Solicitud, aprobación, cuotas, descuento y finalización | Implementado |
 | Capacitación | Cursos, lecciones, materiales, preguntas, quiz, tareas y recompensas | Implementado |
 | Encuestas | Audiencias, anonimato, preguntas, publicación y resultados | Implementado |
-| Notificaciones | Campana interna, anuncios y correo SMTP | Implementado |
+| Notificaciones | Campana interna, avisos modales, correo SMTP y **Web Push** (PWA) | Implementado |
+| PWA (portal móvil) | Instalable en pantalla de inicio, ícono PM, service worker, push nativo | Implementado (2026-08) |
 | Reconocimiento | Estrellas entre compañeros, ranking y recompensas | Implementado |
 | Casa Paviotti | Extras por tarea, tarifas, cierres y conexión a base de extintos | Específico del negocio |
 | Ecofarma | Consultas y exportación de comisiones | Específico del negocio |
@@ -86,9 +90,9 @@ Este documento describe el sistema base y está dirigido a desarrolladores, admi
 - `AllowOverride All` o una configuración equivalente para que funcionen los `.htaccess`.
 - MySQL o MariaDB con soporte `utf8mb4`.
 - Extensiones PHP habituales: `pdo_mysql`, `mbstring`, `fileinfo`, `curl`, `json`, `openssl` y `session`.
-- Composer.
-- PHPMailer `^6.9` para correo.
-- Navegador moderno.
+- Composer (`minishlink/web-push` ^9, PHPMailer ^6.9).
+- HTTPS en producción (obligatorio para PWA, service worker y push).
+- Navegador moderno con soporte de service workers (Chrome, Edge, Safari iOS 16.4+, Brave).
 
 El entorno local analizado utiliza XAMPP sobre Windows. Los scripts `.sh` requieren Bash, WSL, Git Bash o un entorno Linux.
 
@@ -115,11 +119,20 @@ gestion_horas_extras/
 │   ├── .htaccess                # Rewrite hacia index.php?url=...
 │   ├── css/
 │   ├── js/
-│   ├── img/
+│   │   └── pwa-push.js          # Registro SW, instalación PWA, suscripción push
+│   ├── img/pwa/                 # logo-pm.png, icon-192.png, icon-512.png
+│   ├── manifest.php             # Manifiesto PWA dinámico
+│   ├── sw.js                    # Service worker (cache mínimo + push)
 │   └── uploads/                 # Archivos subidos; tratar como sensibles
 └── scripts/
     ├── hosting_smoke_test.php
+    ├── apply_push_subscriptions_migration.php
+    ├── generate_vapid_keys.php
+    ├── generate_pwa_icons.php
     ├── validate_hosting_migration.sql
+    ├── apply_agreement_leave_types_migration.php
+    ├── apply_request_certificate_back_migration.php
+    ├── apply_leave_type_requires_approval_migration.php
     ├── build_migration_hosting_full.sh
     ├── build_migration_hosting_seeds.sh
     ├── seed_prode_wc2026.php
@@ -387,23 +400,72 @@ El formato actual del ingreso es `usuario+contraseña` dentro de un único campo
 | `/employee/miMes` | Planificación + asistencia + solicitudes |
 | `/employee/profile` | Perfil personal |
 | `/employee/updateProfile` | Actualizar perfil |
-| `/employee/notifications` | Notificaciones |
+| `/employee/notifications` | Notificaciones (campana + panel push PWA) |
+| `GET /employee/notificationUnreadCount` | JSON contador no leídas (polling campana) |
+| `POST /employee/pushSubscription` | Alta/baja suscripción Web Push (CSRF) |
+| `GET /employee/pushStatus` | JSON estado push del usuario |
 | `/employee/payStubs` | Recibos |
 | `/employee/payStubSign/{id}` | Abrir recibo para firma |
 | `/employee/signPayStub/{id}` | Registrar firma |
 | `/employee/downloadPayStub/{id}` | Descargar recibo permitido |
 
-### Solicitudes y cambios de turno
+### Solicitudes, licencias y cambios de turno
+
+El portal del empleado centraliza **cambios de turno** y **licencias/ausencias** en `/request/index`. Las pestañas se abren con `?tab=swap` o `?tab=absence` (enlaces normales, sin fragmentos internos).
 
 | Ruta | Uso |
 | --- | --- |
-| `/request/index` | Historial y formularios |
-| `/request/create` | Crear licencia/ausencia/vacaciones |
-| `/request/vacationPreview` | Vista previa JSON de días computables, FIFO y saldo posterior |
-| `/request/createShiftSwap` | Proponer cambio de turno |
-| `/request/streamCertificate/{id}` | Ver certificado propio |
+| `GET /request/index` | Centro de solicitudes (turnos y ausencias) |
+| `GET /request/index?tab=absence` | Licencias, vacaciones y otras ausencias (UI mobile-first) |
+| `POST /request/create` | Crear licencia/ausencia/vacaciones |
+| `POST /request/vacationPreview` | Vista previa JSON de días computables, FIFO y saldo posterior |
+| `POST /request/createShiftSwap` | Proponer cambio de turno |
+| `POST /request/uploadCertificate/{id}` | Adjuntar o actualizar certificado (frente y/o dorso) |
+| `GET /request/streamCertificate/{id}` | Ver certificado propio (frente) |
+| `GET /request/streamCertificateBack/{id}` | Ver certificado propio (dorso) |
+| `GET /admin/requests` | Bandeja administrativa (aprobar, rechazar, certificados) |
+| `POST /admin/processRequest` | Aprobar, rechazar, guardar certificado o descartar de prioridad |
+| `GET /admin/streamRequestCertificate/{id}` | Certificado de solicitud (admin) |
+| `GET /admin/streamRequestCertificateBack/{id}` | Dorso del certificado (admin) |
+| `GET /admin/vacationPlanilla/{userId}` | Planilla de saldo; `?request_id=` para goce |
+| `GET /request/vacationPlanilla` | Planilla de saldo (empleado) |
+| `GET /request/vacationPlanilla/{id}` | Planilla de goce de una solicitud propia |
 
-Tipos observados en la base local: Vacaciones, Cambio de Turno, Llegada Tardía, Salida Temprana, Día por Examen y Otro.
+#### Tipos de solicitud
+
+- **Vacaciones** y motivos genéricos (`request_types`): llegada tardía, salida temprana, día por examen, otro.
+- **Licencias del convenio** (`collective_agreement_leave_types`): catálogo por CCT con código, categoría, goce de sueldo, límites y certificado.
+- **Cambio de turno** (`shift_swaps`): pestaña separada; no se mezcla con ausencias.
+
+#### Licencias por convenio colectivo
+
+Cada convenio en `/vacationAdmin/editAgreement/{id}` define un catálogo de licencias (enfermedad, maternidad, examen, gremial, etc.). El empleado solo ve las licencias de su **convenio efectivo**, resuelto en este orden:
+
+1. `users.agreement_id` (ficha del usuario / configuración laboral).
+2. Convenio del área (`areas.agreement_id`).
+3. Default de empresa (`company_agreement_defaults`).
+4. Asignación laboral principal (`employee_company_assignments.agreement_id`), si existe legajo multiempresa.
+
+Si no hay convenio resuelto, el portal muestra vacaciones/motivos genéricos pero **no** el catálogo convencional. RR. HH. debe cargar el convenio en `/admin/editUser/{id}` → Configuración laboral.
+
+Reglas principales:
+
+- **Enfermedad** (`code = ENFERMEDAD`, `requires_approval = 0`): el empleado solo avisa que está enfermo. La solicitud queda **registrada al instante** (estado `Aprobado`; en pantalla se muestra como **Registrado**). No entra en la bandeja de pendientes de RR. HH.
+- **Certificado médico**: si la licencia lo exige, el empleado puede enviar la solicitud **sin** certificado y subir **frente y dorso** después desde el historial (`certificate_path`, `certificate_back_path`). Los archivos se sirven solo por controladores autenticados; la carpeta `public/uploads/request_certificates/` está bloqueada por `.htaccess`.
+- **Otras licencias** (`requires_approval = 1`): siguen el flujo clásico pendiente → aprobación/rechazo por RR. HH. La aprobación valida límites por evento y por año calendario.
+- Las licencias aprobadas/registradas impactan planificación, asistencia y calendario del empleado igual que vacaciones aprobadas.
+
+Migraciones (ver también `MIGRATIONS.md`):
+
+```bash
+php scripts/apply_agreement_leave_types_migration.php
+php scripts/apply_request_certificate_back_migration.php
+php scripts/apply_leave_type_requires_approval_migration.php
+```
+
+Administración del catálogo: `/vacationAdmin/agreements` y `/vacationAdmin/editAgreement/{id}` (pestaña de licencias del convenio; checkbox **Requiere aprobación RRHH**).
+
+Tipos históricos en `request_types`: Vacaciones, Cambio de Turno, Llegada Tardía, Salida Temprana, Día por Examen, Otro y **Licencia** (tipo contenedor para solicitudes vinculadas al catálogo del convenio).
 
 ### Vacaciones
 
@@ -418,7 +480,11 @@ Tipos observados en la base local: Vacaciones, Cambio de Turno, Llegada Tardía,
 | `/vacationAdmin/convertBalance/{userId}` | Convertir unidades corridos/hábiles con fundamento |
 | `/vacationAdmin/liquidateUser/{userId}` | Liquidar período individual |
 | `/vacationAdmin/liquidateCompanyBatch` | Liquidación masiva |
-| `/vacationAdmin/reports` | Tablero multiempresa “Vacaciones pendientes” |
+| `GET /vacationAdmin/planilla/{userId}` | Igual que `/admin/vacationPlanilla` (solo rol admin) |
+| `GET /admin/vacationPlanilla/{userId}` | Planilla imprimible / PDF de saldo; `?request_id=` para goce de una solicitud |
+| `GET /request/vacationPlanilla` | Planilla de saldo del empleado (portal) |
+| `GET /request/vacationPlanilla/{id}` | Planilla de goce de una solicitud propia |
+| `/vacationAdmin/reports` | Tablero de nómina: todos los empleados, filtros por empresa/saldo/liquidación, liquidar y cargar |
 | `/vacationAdmin/exportVacationBalancesCsv` | Exportación que conserva filtros y orden |
 
 #### Vacaciones v2: reglas de negocio
@@ -427,6 +493,7 @@ Tipos observados en la base local: Vacaciones, Cambio de Turno, Llegada Tardía,
 - Los saldos se separan por tipo: `annual`, `historical` y `conventional_credit`.
 - Un empleado puede pedir parcialmente desde 7 días computables. Pedir 7 de 21 deja 14 pendientes; el período solo cierra al llegar a cero.
 - La aprobación consume por FIFO: primero el período abierto más antiguo. Cada movimiento guarda el período, las fechas imputadas y el horario previo del planificador.
+- Tras liquidar o al gestionar un goce se imprime una planilla (HTML o PDF) para firma manuscrita del empleado y RR. HH. No hay acuse digital ni firma en pantalla.
 - Cancelar/rechazar una solicitud ya aprobada restaura los mismos períodos y los horarios que existían antes de aprobarla.
 - Saldos históricos: RR. HH. carga año, días y motivo; no vencen.
 - Créditos convencionales: se mantienen separados y pueden vencer. Ejecutar diariamente `php scripts/expire_vacation_credits.php` para cerrar y auditar créditos vencidos.
@@ -457,6 +524,41 @@ Las fuentes de análisis fueron los convenios entregados con el proyecto (CCT 13
 | `/notificationsAdmin/broadcastForm/{id?}` | Alta/edición de envío |
 | `/notificationsAdmin/payStubs` | Administración de recibos |
 | `/notificationsAdmin/uploadPayStub` | Cargar recibo |
+
+#### PWA y Web Push
+
+La PWA no es una app offline completa: es un **acceso instalable** al mismo portal PHP. Las pantallas y datos se generan en el servidor en cada visita; los cambios de negocio se ven al abrir la app (salvo cache puntual de CSS/íconos).
+
+| Recurso / ruta | Uso |
+| --- | --- |
+| `/manifest.php` | Manifiesto (`start_url` → `/employee/index`, íconos PM) |
+| `/sw.js` | Service worker: cache mínimo de estáticos + eventos push |
+| `public/js/pwa-push.js` | Instalación, opt-in push, botón flotante móvil |
+| `app/helpers/pwa_helper.php` | Manifest, VAPID, `push_notify_user()` |
+| `app/services/WebPushService.php` | Envío Web Push (librería `minishlink/web-push`) |
+| `app/models/PushSubscription.php` | Suscripciones por usuario/dispositivo |
+
+**Instalación (empleado o cualquier sesión activa):**
+
+- Botón flotante **Instalar app** en móvil (encima de la barra inferior).
+- Ícono **App** en la barra superior (móvil).
+- Tarjeta en **Inicio**, **Mi perfil** y **Mis notificaciones**.
+- Android/Chrome: diálogo nativo cuando el navegador lo permite.
+- iPhone/Safari: modal con pasos **Compartir → Agregar a inicio** (push requiere app instalada en iOS 16.4+).
+
+**Push automático** al crear notificación interna en:
+
+- `NotificationBroadcast` (envíos masivos admin).
+- Carga de recibo con notificación (`NotificationsAdminController::uploadPayStub`).
+- Publicación de curso (`notify_course_published`).
+
+El cuerpo del push es genérico (título + resumen); el detalle queda dentro del portal autenticado.
+
+**Activación por empleado:** banner opt-in o panel en `/employee/notifications`. Requiere permiso del navegador y claves VAPID en `config.local.php`.
+
+**Actualizaciones:** no hace falta reinstalar la PWA ante cambios de PHP/pantallas. Tras un deploy, abrir la app alcanza. Cambios de **ícono** pueden requerir reinstalar o esperar actualización del service worker (incrementar `CACHE_NAME` en `sw.js`).
+
+Ver también §10 (configuración VAPID) y `MIGRATIONS.md` § Web Push / PWA.
 
 ### Adelantos de sueldo
 
@@ -678,7 +780,8 @@ El estado normal de una hora extra es `pending`; al generar un cierre pasa a est
 ### Solicitudes y legajo
 
 - `request_types`
-- `requests`
+- `requests` (`agreement_leave_type_id`, `certificate_path`, `certificate_back_path`)
+- `collective_agreement_leave_types` (catálogo por convenio: límites, certificado, `requires_approval`)
 - `employee_incidents`
 - `user_notes`
 - `suggestions`
@@ -686,6 +789,7 @@ El estado normal de una hora extra es `pending`; al generar un cierre pasa a est
 ### Vacaciones
 
 - `collective_agreements`
+- `collective_agreement_leave_types` (licencias convencionales por CCT)
 - reglas de convenio
 - relación convenio/empresa
 - `vacation_balance_periods`
@@ -697,6 +801,7 @@ El estado normal de una hora extra es `pending`; al generar un cierre pasa a est
 - `announcements`
 - `notification_broadcasts`
 - `user_notifications`
+- `push_subscriptions` (Web Push PWA; ver `MIGRATIONS.md`)
 - `pay_stubs`
 - `mail_settings`
 - `system_settings`
@@ -737,7 +842,15 @@ No colocar tokens personales dentro de la URL del remote. Utilizar Git Credentia
 composer install
 ```
 
-En el estado actual no existe `composer.lock`; Composer resolverá la versión compatible más reciente de PHPMailer. Se recomienda generar y versionar el lock después de validar la aplicación.
+El proyecto incluye `composer.lock`; usar `composer install` para respetar versiones probadas. Tras actualizar dependencias, validar en staging y commitear el lock.
+
+Para producción:
+
+```bash
+composer install --no-dev --optimize-autoloader
+```
+
+Dependencias relevantes: `phpmailer/phpmailer`, `minishlink/web-push` (push PWA).
 
 ### 8.4 Configuración local
 
@@ -882,6 +995,37 @@ Variables importantes:
 - `CLOCK_API_BASE_URL`, `CLOCK_API_EMAIL`, `CLOCK_API_PASSWORD`
 - `EXTINTOS_DB_HOST`, `EXTINTOS_DB_NAME`, `EXTINTOS_DB_USER`, `EXTINTOS_DB_PASS`
 - tolerancias de asistencia
+- **Web Push (PWA):** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (en `config.local.php`; generar con `php scripts/generate_vapid_keys.php`)
+
+### PWA y Web Push
+
+Requisitos en producción:
+
+1. **HTTPS** obligatorio (`URLROOT` con `https://`).
+2. `composer install` (incluye `minishlink/web-push`).
+3. Migración: `php scripts/apply_push_subscriptions_migration.php`.
+4. Claves VAPID en `app/config/config.local.php` (no versionar):
+
+```php
+define('VAPID_PUBLIC_KEY', '...');
+define('VAPID_PRIVATE_KEY', '...');
+define('VAPID_SUBJECT', 'mailto:rrhh@tu-dominio.com');
+```
+
+5. Íconos: reemplazar `public/img/pwa/logo-pm.png` y ejecutar `php scripts/generate_pwa_icons.php`.
+6. Tras cambiar `public/sw.js`, incrementar `CACHE_NAME` para forzar actualización en clientes.
+
+Verificación rápida:
+
+```bash
+curl -sI https://TU_DOMINIO/manifest.php | head -3
+curl -sI https://TU_DOMINIO/sw.js | head -3
+ls vendor/minishlink/web-push
+```
+
+Cloudflare u otros CDN: evitar cache agresivo de `sw.js` (preferir `Cache-Control: no-cache` o regla dedicada).
+
+Sin VAPID configurado, la PWA sigue siendo **instalable**, pero no se envían pushes.
 
 ### Configuración desde la interfaz
 
@@ -977,6 +1121,15 @@ Los períodos y movimientos son la fuente de verdad. `users.vacation_days_availa
 
 Referencia oficial: <https://www.argentina.gob.ar/normativa/nacional/ley-20744-25552/actualizacion>
 
+### Licencias y ausencias por convenio
+
+- El catálogo vive en `collective_agreement_leave_types` y se administra junto al convenio en `/vacationAdmin/editAgreement/{id}`.
+- Cada ítem define conteo de días (`calendar`, `weekdays`, `business_mon_sat`), máximos por evento/año, aviso previo, si exige certificado y si requiere aprobación de RR. HH.
+- **Enfermedad** se modela como aviso inmediato (`requires_approval = 0`): no bloquea al empleado enfermo esperando aprobación; RR. HH. puede revisar el historial y los certificados cuando se suban.
+- Los certificados (frente/dorso) son informativos para enfermedad ya registrada; para licencias que sí requieren aprobación, la bandeja admin puede impedir aprobar sin certificado cuando corresponda.
+- Helpers relevantes: `agreement_leave_type_requires_approval()`, `employee_request_status_label()`, `VacationEntitlementService::getEffectiveAgreement()`.
+- Controladores: `RequestController` (portal empleado), `AdminController::approveRequestWithBalance()` (validación al aprobar).
+
 ## 12. Seguridad y privacidad
 
 ### Controles existentes
@@ -1032,6 +1185,20 @@ Referencia oficial: <https://www.argentina.gob.ar/normativa/nacional/ley-20744-2
 - y más migraciones intermedias.
 
 La mayoría de esos archivos históricos no están actualmente en el repositorio. `migration_vacation_management_v2.sql` sí está versionada y se incorpora como paso 38 del generador de hosting; `migration_employee_record_complete.sql` se incorpora como paso 39.
+
+Migraciones recientes del módulo de licencias (agosto 2026), documentadas en `MIGRATIONS.md`:
+
+- `migration_collective_agreement_leave_types.sql` — catálogo por convenio y vínculo en `requests`.
+- `migration_request_certificate_back.sql` — columna `certificate_back_path`.
+- `migration_leave_type_requires_approval.sql` — aviso inmediato vs. aprobación RR. HH.
+
+Scripts idempotentes: `apply_agreement_leave_types_migration.php`, `apply_request_certificate_back_migration.php`, `apply_leave_type_requires_approval_migration.php`, `apply_push_subscriptions_migration.php`. También pueden aplicarse vía `scripts/aplicar_pendientes_vps.php`.
+
+Migración **Web Push / PWA** (agosto 2026), detalle en `MIGRATIONS.md`:
+
+- `scripts/migration_push_subscriptions.sql` — tabla `push_subscriptions`.
+- `php scripts/generate_vapid_keys.php` — par de claves para `config.local.php`.
+- `php scripts/generate_pwa_icons.php` — regenera `icon-192.png` e `icon-512.png` desde `logo-pm.png`.
 
 Plan recomendado:
 
@@ -1224,6 +1391,8 @@ git ls-files | rg -i '(dni|document|recibo|signature|certificate|\.sql$|\.env$)'
 - [ ] Logout usa POST con CSRF desde todas sus ubicaciones.
 - [ ] Los archivos sensibles no son accesibles directamente.
 - [ ] Las integraciones utilizan TLS.
+- [ ] PWA: `manifest.php` y `sw.js` responden 200; `vendor/minishlink/web-push` instalado; VAPID en `config.local.php`; tabla `push_subscriptions` migrada.
+- [ ] Push de prueba: empleado suscripto recibe aviso al enviar un broadcast admin.
 - [ ] El smoke test pasa.
 - [ ] Los logs no contienen secretos ni datos personales innecesarios.
 - [ ] Este README refleja cualquier ruta, tabla o configuración nueva.
@@ -1269,12 +1438,34 @@ git ls-files | rg -i '(dni|document|recibo|signature|certificate|\.sql$|\.env$)'
 - Si existe un crédito vencido, ejecutar `php scripts/expire_vacation_credits.php` y revisar el movimiento `expiry`.
 - Si aparece una incompatibilidad de unidades, usar la conversión auditada desde la ficha de vacaciones; no editar saldos directamente.
 
+### El empleado no ve licencias del convenio
+
+- Verificar que `users.agreement_id` (o área/default/asignación laboral) tenga un convenio asignado.
+- Confirmar que corrió `apply_agreement_leave_types_migration.php` y que el convenio tiene licencias activas.
+- Revisar `/request/index?tab=absence` con sesión del empleado; sin convenio efectivo solo aparecen tipos genéricos.
+
+### No se visualiza el dorso del certificado
+
+- Ejecutar `php scripts/apply_request_certificate_back_migration.php`.
+- Comprobar que `requests.certificate_back_path` no sea NULL para esa solicitud.
+- Los archivos no son accesibles por URL directa; usar `/request/streamCertificateBack/{id}` (empleado) o `/admin/streamRequestCertificateBack/{id}` (admin).
+- En el portal del empleado, las imágenes se muestran como miniatura en el historial; PDFs abren en nueva pestaña.
+
 ### Correo no disponible
 
 - Confirmar esquema de notificaciones y `mail_settings`.
 - Revisar PHPMailer/vendor.
 - Configurar SMTP con TLS.
 - Usar el envío de prueba desde configuración.
+
+### PWA: no aparece “Instalar app” o no llega el push
+
+- Confirmar **HTTPS** y sesión iniciada (el botón flotante aparece para cualquier usuario logueado en móvil).
+- Abrir desde el **navegador** (Chrome, Safari, Brave), no desde un acceso directo viejo en modo standalone (ahí se ocultan los controles de instalación).
+- Si se cerró el banner, usar **Mi perfil** o **Mis notificaciones** → **Instalar app**.
+- iPhone: instalar primero (**Compartir → Agregar a inicio**), luego activar notificaciones en el panel push.
+- Push: verificar `VAPID_*` en `config.local.php`, tabla `push_subscriptions`, `composer install` y permiso concedido en el navegador.
+- Cambio de ícono no visible: reinstalar PWA o incrementar `CACHE_NAME` en `sw.js` y limpiar cache del sitio.
 
 ## 19. Referencias internas principales
 
@@ -1288,10 +1479,13 @@ git ls-files | rg -i '(dni|document|recibo|signature|certificate|\.sql$|\.env$)'
 - Marcaciones: `app/models/Schedule.php`, `app/models/SyncModel.php`
 - Plan vs. real: `app/models/PlanVsActualService.php`
 - Vacaciones: `app/services/VacationEntitlementService.php`, `app/services/VacationLedgerService.php`
+- Licencias por convenio: `app/models/CollectiveAgreement.php`, `app/controllers/RequestController.php`, `app/helpers/vacation_helper.php`
+- PWA / Web Push: `app/helpers/pwa_helper.php`, `app/services/WebPushService.php`, `app/models/PushSubscription.php`, `public/sw.js`, `public/js/pwa-push.js`
 - Archivos protegidos: `app/helpers/uploads_security_helper.php`
+- Guía operativa del repo: `GUIA_MAESTRA.md`, `MIGRATIONS.md`
 - Configuración dinámica: `app/services/SystemSettingsService.php`
 - Smoke test: `scripts/hosting_smoke_test.php`
 
 ---
 
-Última revisión integral del documento: agosto de 2026. Antes de usar reglas laborales para liquidación, validarlas con el convenio aplicable y con responsables legales/contables de la organización.
+Última revisión integral del documento: agosto de 2026 (incluye PWA instalable y Web Push). Antes de usar reglas laborales para liquidación, validarlas con el convenio aplicable y con responsables legales/contables de la organización.

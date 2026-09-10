@@ -231,6 +231,15 @@ class User {
         }
     }
 
+    public function isAgreementIdReady() {
+        try {
+            $this->db->query("SHOW COLUMNS FROM `users` LIKE 'agreement_id'");
+            return (bool)$this->db->single();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
     public function isProbationDateReady() {
         try {
             $this->db->query("SHOW COLUMNS FROM `users` LIKE 'probation_start_date'");
@@ -245,8 +254,12 @@ class User {
             return false;
         }
         // Parámetros posicionales: evita HY093 con nombres tipo :p_agreement_id / :p_uid en PDO+MySQL.
-        $sets = ['hire_date = ?', 'agreement_id = ?'];
-        $params = [$hireDate ?: null, $agreementId];
+        $sets = ['hire_date = ?'];
+        $params = [$hireDate ?: null];
+        if ($this->isAgreementIdReady()) {
+            $sets[] = 'agreement_id = ?';
+            $params[] = $agreementId > 0 ? (int)$agreementId : null;
+        }
         if ($this->isProbationDateReady()) {
             $sets[] = 'probation_start_date = ?';
             $params[] = $probationStartDate ?: null;
@@ -264,6 +277,8 @@ class User {
         }
         if ($this->isVacationProfileReady()) {
             $cols[] = 'hire_date';
+        }
+        if ($this->isAgreementIdReady()) {
             $cols[] = 'agreement_id';
         }
         return $cols;
@@ -276,6 +291,8 @@ class User {
         }
         if ($this->isVacationProfileReady()) {
             $vals[] = !empty($data['hire_date']) ? $data['hire_date'] : null;
+        }
+        if ($this->isAgreementIdReady()) {
             $vals[] = isset($data['agreement_id']) && (int)$data['agreement_id'] > 0 ? (int)$data['agreement_id'] : null;
         }
         return $vals;
@@ -480,6 +497,52 @@ class User {
         }
 
         $vals[] = (int)$data['id'];
+        $sql = 'UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = ?';
+        $this->db->query($sql);
+        return $this->db->execute($vals);
+    }
+
+    /** Validación de datos personales editables por el empleado. */
+    public static function validateSelfServiceProfile(array $data) {
+        $errors = [];
+        $email = trim((string)($data['email'] ?? ''));
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors['email'] = 'Email no válido.';
+        }
+        return $errors;
+    }
+
+    /** Actualización de datos personales propios (empleado). */
+    public function updateEmployeePersonalData($userId, array $data) {
+        if (!$this->isProfileExtendedReady()) {
+            return false;
+        }
+        $extended = [
+            'email', 'phone_number', 'address', 'document_number', 'cuil', 'sex', 'gender', 'birth_date',
+            'emergency_contact_name', 'emergency_contact_phone',
+        ];
+        $sets = [];
+        $vals = [];
+        foreach ($extended as $col) {
+            if (!array_key_exists($col, $data)) {
+                continue;
+            }
+            $sets[] = $col . ' = ?';
+            $vals[] = $data[$col];
+        }
+        if ($this->isPersonalFileReady()) {
+            foreach (['marital_status', 'emergency_contact_relationship'] as $col) {
+                if (!array_key_exists($col, $data)) {
+                    continue;
+                }
+                $sets[] = $col . ' = ?';
+                $vals[] = $data[$col];
+            }
+        }
+        if ($sets === []) {
+            return true;
+        }
+        $vals[] = (int)$userId;
         $sql = 'UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = ?';
         $this->db->query($sql);
         return $this->db->execute($vals);
@@ -753,31 +816,219 @@ class User {
     }
 
     public function getAllUsersWithCompany($companyFilterId = null, $branchId = 0) {
-        $sql = '
-            SELECT u.*, c.name AS company_name
-            FROM users u
-            LEFT JOIN companies c ON c.id = u.company_id
-        ';
-        $branchFilter = (int)$branchId > 0 && (int)$companyFilterId > 0;
-        if ($companyFilterId) {
-            $sql .= ' WHERE u.company_id = :company_id';
-            if ($branchFilter) {
-                if ($this->isMultipleBranchAssignmentsReady()) {
-                    $sql .= ' AND EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = :branch_id)';
-                } elseif ($this->isBranchAssignmentReady()) {
-                    $sql .= ' AND u.branch_id = :branch_id';
-                }
+        $result = $this->getAdminDirectory([
+            'company_id' => $companyFilterId ? (int)$companyFilterId : 0,
+            'branch_id' => (int)$branchId,
+            'page' => 1,
+            'per_page' => 100000,
+        ]);
+        return $result['users'];
+    }
+
+    /**
+     * Directorio de /admin/users: filtros en SQL, paginación y KPIs del contexto.
+     * $opts: company_id, branch_id, company_ids, q, filter, city, branch_name,
+     *        page, per_page, record_ready, access_ready.
+     */
+    public function getAdminDirectory(array $opts) {
+        $companyFilterId = (int)($opts['company_id'] ?? 0);
+        $branchId = (int)($opts['branch_id'] ?? 0);
+        $restrictIds = array_values(array_unique(array_filter(array_map('intval', $opts['company_ids'] ?? []))));
+        $q = trim((string)($opts['q'] ?? ''));
+        $q = str_replace(['%', '_'], '', $q);
+        if (mb_strlen($q) > 80) {
+            $q = mb_substr($q, 0, 80);
+        }
+        $filter = (string)($opts['filter'] ?? 'all');
+        $city = trim((string)($opts['city'] ?? ''));
+        $branchName = trim((string)($opts['branch_name'] ?? ''));
+        $page = max(1, (int)($opts['page'] ?? 1));
+        $perPage = max(1, min(96, (int)($opts['per_page'] ?? 48)));
+        $recordReady = !empty($opts['record_ready']);
+        $accessReady = !empty($opts['access_ready']);
+        $multiBranchReady = $this->isMultipleBranchAssignmentsReady();
+        $branchColReady = $this->isBranchAssignmentReady();
+        $profileReady = $this->isProfileExtendedReady();
+        $hireReady = $this->isVacationProfileReady();
+
+        $joins = ' FROM users u LEFT JOIN companies c ON c.id = u.company_id';
+        if ($accessReady) {
+            $joins .= ' LEFT JOIN user_access_scopes uas ON uas.user_id = u.id AND uas.is_primary = 1 AND uas.is_active = 1';
+        }
+        if ($recordReady) {
+            $joins .= ' LEFT JOIN employee_company_assignments eca ON eca.id = (
+                    SELECT e2.id FROM employee_company_assignments e2
+                    WHERE e2.user_id = u.id AND e2.company_id = u.company_id
+                    ORDER BY e2.is_primary DESC, e2.id DESC LIMIT 1
+                )
+                LEFT JOIN job_positions jp ON jp.id = eca.position_id
+                LEFT JOIN areas a ON a.id = eca.area_id';
+        }
+
+        $scopeSql = $accessReady
+            ? "COALESCE(uas.access_role, CASE u.role WHEN 'admin' THEN 'administrador' WHEN 'supervisor' THEN 'encargado' ELSE 'operario' END)"
+            : "CASE u.role WHEN 'admin' THEN 'administrador' WHEN 'supervisor' THEN 'encargado' ELSE 'operario' END";
+
+        $context = $this->adminDirectoryContextWhere($companyFilterId, $branchId, $restrictIds, $multiBranchReady, $branchColReady);
+        $filtered = $this->adminDirectoryFilterWhere($filter, $q, $city, $branchName, $scopeSql, $recordReady, $multiBranchReady, $profileReady, $hireReady);
+
+        $whereSql = '';
+        $whereParts = array_merge($context['sql'], $filtered['sql']);
+        if ($whereParts) {
+            $whereSql = ' WHERE ' . implode(' AND ', $whereParts);
+        }
+        $filterParams = array_merge($context['params'], $filtered['params']);
+
+        $this->db->query('SELECT COUNT(*) AS n' . $joins . $whereSql);
+        $totalRow = $this->db->single($filterParams);
+        $total = (int)($totalRow->n ?? 0);
+        $pages = max(1, (int)ceil($total / $perPage));
+        if ($page > $pages) {
+            $page = $pages;
+        }
+        $offset = ($page - 1) * $perPage;
+
+        $select = 'SELECT u.*, c.name AS company_name';
+        if ($accessReady) {
+            $select .= ', uas.access_role AS access_role';
+        }
+        $this->db->query($select . $joins . $whereSql . ' ORDER BY c.name ASC, u.full_name ASC LIMIT ' . (int)$perPage . ' OFFSET ' . (int)$offset);
+        $users = $this->db->resultSet($filterParams);
+
+        $kpiWhereSql = $context['sql'] ? (' WHERE ' . implode(' AND ', $context['sql'])) : '';
+        $kpiSelect = 'SELECT COUNT(*) AS total, SUM(u.is_active = 1) AS access_active';
+        if ($recordReady) {
+            $kpiSelect .= ", SUM(eca.status = 'activo') AS labor_active";
+            if ($multiBranchReady) {
+                $kpiSelect .= ', SUM((SELECT COUNT(*) FROM employee_branch_assignments ebc WHERE ebc.user_id = u.id) > 1) AS multi_branch';
+            } else {
+                $kpiSelect .= ', 0 AS multi_branch';
+            }
+            $kpiSelect .= ', SUM((' . $this->adminDirectoryCompletenessSql($multiBranchReady, $profileReady, $hireReady) . ') < 70) AS incomplete';
+        } else {
+            $kpiSelect .= ', NULL AS labor_active, NULL AS multi_branch, NULL AS incomplete';
+        }
+        $this->db->query($kpiSelect . $joins . $kpiWhereSql);
+        $kpiRow = $this->db->single($context['params']);
+
+        return [
+            'users' => $users ?: [],
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $perPage,
+            'pages' => $pages,
+            'kpis' => [
+                'total' => (int)($kpiRow->total ?? 0),
+                'access_active' => (int)($kpiRow->access_active ?? 0),
+                'labor_active' => isset($kpiRow->labor_active) ? (int)$kpiRow->labor_active : null,
+                'incomplete' => isset($kpiRow->incomplete) ? (int)$kpiRow->incomplete : null,
+                'multi_branch' => isset($kpiRow->multi_branch) ? (int)$kpiRow->multi_branch : null,
+            ],
+        ];
+    }
+
+    private function adminDirectoryContextWhere($companyFilterId, $branchId, array $restrictIds, $multiBranchReady, $branchColReady) {
+        $sql = [];
+        $params = [];
+        if ($companyFilterId > 0) {
+            $sql[] = 'u.company_id = ?';
+            $params[] = $companyFilterId;
+        } elseif ($restrictIds) {
+            $sql[] = 'u.company_id IN (' . implode(',', array_fill(0, count($restrictIds), '?')) . ')';
+            $params = array_merge($params, $restrictIds);
+        }
+        if ($branchId > 0 && $companyFilterId > 0) {
+            if ($multiBranchReady) {
+                $sql[] = 'EXISTS (SELECT 1 FROM employee_branch_assignments eba WHERE eba.user_id = u.id AND eba.branch_id = ?)';
+                $params[] = $branchId;
+            } elseif ($branchColReady) {
+                $sql[] = 'u.branch_id = ?';
+                $params[] = $branchId;
             }
         }
-        $sql .= ' ORDER BY c.name ASC, u.full_name ASC';
-        $this->db->query($sql);
-        if ($companyFilterId) {
-            $this->db->bind(':company_id', $companyFilterId);
-            if ($branchFilter && ($this->isMultipleBranchAssignmentsReady() || $this->isBranchAssignmentReady())) {
-                $this->db->bind(':branch_id', (int)$branchId);
+        return ['sql' => $sql, 'params' => $params];
+    }
+
+    private function adminDirectoryFilterWhere($filter, $q, $city, $branchName, $scopeSql, $recordReady, $multiBranchReady, $profileReady, $hireReady) {
+        $sql = [];
+        $params = [];
+        if ($q !== '') {
+            $like = '%' . $q . '%';
+            $parts = ['u.full_name LIKE ?', 'u.username LIKE ?', 'c.name LIKE ?'];
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+            if ($profileReady) {
+                $parts[] = 'u.document_number LIKE ?';
+                $params[] = $like;
             }
+            if ($recordReady) {
+                $parts[] = 'eca.employee_number LIKE ?';
+                $parts[] = 'jp.name LIKE ?';
+                $parts[] = 'a.name LIKE ?';
+                $params[] = $like;
+                $params[] = $like;
+                $params[] = $like;
+            }
+            if ($multiBranchReady) {
+                $parts[] = 'EXISTS (SELECT 1 FROM employee_branch_assignments eba2 INNER JOIN company_branches b2 ON b2.id = eba2.branch_id WHERE eba2.user_id = u.id AND b2.name LIKE ?)';
+                $params[] = $like;
+            }
+            $sql[] = '(' . implode(' OR ', $parts) . ')';
         }
-        return $this->db->resultSet();
+        if ($multiBranchReady && ($city !== '' || $branchName !== '')) {
+            $exists = 'EXISTS (SELECT 1 FROM employee_branch_assignments eba3 INNER JOIN company_branches b3 ON b3.id = eba3.branch_id WHERE eba3.user_id = u.id';
+            if ($branchName !== '') {
+                $exists .= ' AND b3.name = ?';
+                $params[] = $branchName;
+            }
+            if ($city !== '') {
+                $exists .= ' AND b3.locality = ?';
+                $params[] = $city;
+            }
+            $sql[] = $exists . ')';
+        }
+        $accessRoles = array_keys(AccessControl::roles());
+        if (in_array($filter, $accessRoles, true)) {
+            $sql[] = $scopeSql . ' = ?';
+            $params[] = $filter;
+        } elseif ($filter === 'access-active') {
+            $sql[] = 'u.is_active = 1';
+        } elseif ($filter === 'labor-active' && $recordReady) {
+            $sql[] = "eca.status = 'activo'";
+        } elseif ($filter === 'multibranch' && $multiBranchReady) {
+            $sql[] = '(SELECT COUNT(*) FROM employee_branch_assignments ebc WHERE ebc.user_id = u.id) > 1';
+        } elseif ($filter === 'incomplete' && $recordReady) {
+            $sql[] = '(' . $this->adminDirectoryCompletenessSql($multiBranchReady, $profileReady, $hireReady) . ') < 70';
+        } elseif ($filter === 'admin') {
+            $sql[] = $scopeSql . " IN ('administrador','rrhh')";
+        } elseif ($filter === 'supervisor') {
+            $sql[] = $scopeSql . " IN ('encargado','coordinador')";
+        } elseif ($filter === 'empleado') {
+            $sql[] = $scopeSql . " IN ('operario')";
+        }
+        return ['sql' => $sql, 'params' => $params];
+    }
+
+    private function adminDirectoryCompletenessSql($multiBranchReady, $profileReady, $hireReady) {
+        $checks = [];
+        if ($profileReady) {
+            $checks[] = "CASE WHEN (IFNULL(u.document_number,'') <> '' OR IFNULL(u.cuil,'') <> '') THEN 1 ELSE 0 END";
+            $checks[] = "CASE WHEN (IFNULL(u.email,'') <> '' OR IFNULL(u.phone_number,'') <> '') THEN 1 ELSE 0 END";
+        } else {
+            $checks[] = '0';
+            $checks[] = '0';
+        }
+        $checks[] = $hireReady
+            ? 'CASE WHEN u.hire_date IS NOT NULL THEN 1 ELSE 0 END'
+            : '0';
+        $checks[] = "CASE WHEN jp.name IS NOT NULL AND jp.name <> '' THEN 1 ELSE 0 END";
+        $checks[] = $multiBranchReady
+            ? 'CASE WHEN (SELECT COUNT(*) FROM employee_branch_assignments ebc WHERE ebc.user_id = u.id) > 0 THEN 1 ELSE 0 END'
+            : "CASE WHEN IFNULL(u.branch_id,0) > 0 THEN 1 ELSE 0 END";
+        $checks[] = "CASE WHEN EXISTS (SELECT 1 FROM employee_addresses ea WHERE ea.user_id = u.id AND ea.is_primary = 1) THEN 1 ELSE 0 END";
+        $checks[] = "CASE WHEN EXISTS (SELECT 1 FROM employee_health_coverages ehc WHERE ehc.user_id = u.id AND ehc.is_primary = 1 AND ehc.status IN ('activa','en_tramite')) THEN 1 ELSE 0 END";
+        return '((' . implode(' + ', $checks) . ') * 100 / 7)';
     }
 
     public function getAllUsers(){

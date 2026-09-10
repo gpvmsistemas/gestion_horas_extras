@@ -91,6 +91,20 @@ $_uri = $_SERVER['REQUEST_URI'] ?? '';
 <script src="<?php echo URLROOT; ?>/js/employee-announcements.js"></script>
 <script src="<?php echo URLROOT; ?>/js/employee-notifications.js"></script>
 <?php endif; ?>
+<?php if (function_exists('pwa_install_ui_enabled') && pwa_install_ui_enabled()): ?>
+<?php require APPROOT . '/views/inc/partials/pwa_install_help_modal.php'; ?>
+<script>window.PWA_CONFIG = <?php echo json_script_safe([
+    'urlRoot' => URLROOT,
+    'scope' => (function () {
+        $path = parse_url(URLROOT, PHP_URL_PATH);
+        $base = is_string($path) ? rtrim($path, '/') : '';
+        return ($base !== '' ? $base : '') . '/';
+    })(),
+    'pushEnabled' => hasRole('empleado') && function_exists('pwa_push_ready') && pwa_push_ready(),
+    'vapidPublicKey' => function_exists('pwa_vapid_public_key') ? pwa_vapid_public_key() : '',
+]); ?>;</script>
+<script src="<?php echo URLROOT; ?>/js/pwa-push.js?v=<?php echo (int)@filemtime(APPROOT . '/../public/js/pwa-push.js'); ?>"></script>
+<?php endif; ?>
 <?php if (!empty($GLOBALS['requests_review_page'])): ?>
 <script src="<?php echo URLROOT; ?>/js/requests-review.js?v=2"></script>
 <?php endif; ?>

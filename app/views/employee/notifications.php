@@ -1,5 +1,9 @@
 <?php require APPROOT . '/views/inc/header.php'; ?>
 
+<?php require APPROOT . '/views/inc/partials/pwa_push_settings.php'; ?>
+
+<?php require APPROOT . '/views/inc/partials/pwa_install_settings.php'; ?>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="h4 mb-0"><i class="fas fa-bell me-2"></i>Mis notificaciones</h1>
     <?php
