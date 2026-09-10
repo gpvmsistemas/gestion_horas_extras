@@ -26,6 +26,7 @@ foreach ($pendingQueue as $request) {
     $endDate = $request->end_date ?: $request->start_date;
     $pendingForJs[] = [
         'id' => (int)$request->id,
+        'user_id' => (int)($request->user_id ?? 0),
         'full_name' => $request->full_name,
         'type_name' => $request->type_name,
         'start_date' => $request->start_date,
@@ -36,7 +37,15 @@ foreach ($pendingQueue as $request) {
         'certificate_url' => !empty($request->certificate_path)
             ? admin_request_certificate_stream_url((int)$request->id)
             : null,
+        'certificate_back_url' => !empty($request->certificate_back_path)
+            ? admin_request_certificate_back_stream_url((int)$request->id)
+            : null,
+        'agreement_leave_requires_certificate' => !empty($request->agreement_leave_requires_certificate),
+        'agreement_leave_legal_reference' => $request->agreement_leave_legal_reference ?? '',
         'vacation_preview' => $request->vacation_preview ?? null,
+        'planilla_url' => function_exists('vacation_is_vacation_request') && vacation_is_vacation_request($request)
+            ? vacation_planilla_staff_url((int)($request->user_id ?? 0), (int)$request->id)
+            : null,
     ];
 }
 ?>
@@ -244,6 +253,11 @@ foreach ($pendingQueue as $request) {
             </div>
 
             <div class="alert alert-info small mb-3" id="reqVacationPreview" style="display:none"></div>
+            <p class="mb-3" id="reqVacationPlanillaWrap" style="display:none">
+                <a href="#" id="reqVacationPlanillaLink" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">
+                    <i class="fas fa-print me-1"></i> Imprimir planilla
+                </a>
+            </p>
 
             <div class="mb-3" id="reqVacationExceptionBlock" style="display:none">
                 <label for="reqVacationException" class="form-label small fw-semibold">Justificación de excepción</label>
@@ -254,6 +268,7 @@ foreach ($pendingQueue as $request) {
             <div class="mb-3" id="reqReviewCertBlock" style="display:none">
                 <label class="form-label small fw-semibold">Certificado adjunto</label>
                 <div id="reqReviewCertLink"></div>
+                <div class="alert alert-warning small py-2 mt-2 mb-0" id="reqReviewCertWarn" style="display:none"></div>
             </div>
 
             <div class="mb-3">
@@ -262,8 +277,10 @@ foreach ($pendingQueue as $request) {
             </div>
 
             <div class="mb-4">
-                <label for="reqReviewCertificate" class="form-label small fw-semibold">Adjuntar certificado</label>
+                <label for="reqReviewCertificate" class="form-label small fw-semibold">Adjuntar certificado (frente)</label>
                 <input type="file" name="certificate" id="reqReviewCertificate" class="form-control form-control-sm" accept=".pdf,.jpg,.jpeg,.png,.webp">
+                <label for="reqReviewCertificateBack" class="form-label small fw-semibold mt-2">Adjuntar certificado (dorso)</label>
+                <input type="file" name="certificate_back" id="reqReviewCertificateBack" class="form-control form-control-sm" accept=".pdf,.jpg,.jpeg,.png,.webp">
                 <div class="form-text">PDF o imagen. Opcional al aprobar o guardar.</div>
             </div>
 
@@ -348,6 +365,10 @@ foreach ($pendingQueue as $request) {
                                         </button>
                                     <?php endif; ?>
                                     <a href="<?php echo URLROOT; ?>/admin/editRequest/<?php echo $request->id; ?>" class="admin-icon-btn is-info" title="Editar"><i class="fas fa-pencil-alt"></i></a>
+                                    <?php if (function_exists('vacation_is_vacation_request') && vacation_is_vacation_request($request) && !empty($request->user_id)): ?>
+                                    <a href="<?php echo htmlspecialchars(vacation_planilla_staff_url((int)$request->user_id, (int)$request->id)); ?>"
+                                       class="admin-icon-btn is-info" target="_blank" rel="noopener" title="Planilla de vacaciones"><i class="fas fa-print"></i></a>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

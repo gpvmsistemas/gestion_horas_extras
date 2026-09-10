@@ -22,6 +22,7 @@ class AdminController {
     private $employeeIncidentModel;
     private $clockDeviceModel;
     private $employeeRecordModel;
+    private $employeeChildModel;
 
     public function __construct(){
         if (!isStaffAdmin()) {
@@ -48,7 +49,50 @@ class AdminController {
         $this->employeeIncidentModel = new EmployeeIncident();
         $this->clockDeviceModel = new ClockDevice();
         $this->employeeRecordModel = new EmployeeRecord();
+        $this->employeeChildModel = new EmployeeChild();
         ensureAdminCompanySession();
+    }
+
+    /** Datos de hijos/as para formularios admin. */
+    private function employeeChildrenViewData($userId, $post = null) {
+        if (!$this->employeeChildModel->isReady()) {
+            return ['employee_children_ready' => false];
+        }
+        if ($post !== null) {
+            $hasChildren = !empty($post['has_children']);
+            $rows = $hasChildren ? EmployeeChild::rowsFromPost($post) : [];
+            return [
+                'employee_children_ready' => true,
+                'has_children' => $hasChildren,
+                'employee_children' => array_map(static function ($row) {
+                    return (object)$row;
+                }, $rows),
+            ];
+        }
+        $children = $this->employeeChildModel->getByUserId((int)$userId);
+        return [
+            'employee_children_ready' => true,
+            'has_children' => count($children) > 0,
+            'employee_children' => $children,
+        ];
+    }
+
+    private function mergeEmployeeChildrenValidation(array &$errors) {
+        if (!$this->employeeChildModel->isReady()) {
+            return;
+        }
+        $hasChildren = !empty($_POST['has_children']);
+        $rows = $hasChildren ? EmployeeChild::rowsFromPost($_POST) : [];
+        $errors = array_merge($errors, EmployeeChild::validateRows($rows, $hasChildren));
+    }
+
+    private function saveEmployeeChildrenFromPost($userId) {
+        if (!$this->employeeChildModel->isReady()) {
+            return true;
+        }
+        $hasChildren = !empty($_POST['has_children']);
+        $rows = $hasChildren ? EmployeeChild::rowsFromPost($_POST) : [];
+        return $this->employeeChildModel->saveForUser((int)$userId, $rows);
     }
 
     public function index(){
@@ -847,6 +891,20 @@ class AdminController {
         protected_upload_send('request_certificates/' . $request->certificate_path, true, basename((string)$request->certificate_path));
     }
 
+    public function streamRequestCertificateBack($id = 0) {
+        $id = (int)$id;
+        if ($id <= 0 || !isset($_SESSION['user_company_id'])) {
+            http_response_code(404);
+            exit;
+        }
+        $request = $this->requestModel->getRequestByIdForCompany($id, (int)$_SESSION['user_company_id']);
+        if (!$request || empty($request->certificate_back_path)) {
+            http_response_code(404);
+            exit;
+        }
+        protected_upload_send('request_certificates/' . $request->certificate_back_path, true, basename((string)$request->certificate_back_path));
+    }
+
     public function history(){
         require_staff_overtime_access();
         $companyId = requireAdminCompany('admin/dashboard');
@@ -1166,9 +1224,6 @@ class AdminController {
     public function users() {
         requireAdminOnly();
         $companyFilter = isset($_GET['company_id']) ? (int)$_GET['company_id'] : adminCompanyId();
-        // Suite P&M: cada organización ve solo su nómina.
-        // Moderna => por defecto TODO el grupo (MODERNA SRL, FRANCE SRL, FCF SAS);
-        // Paviotti => las empresas del grupo Moderna quedan excluidas del listado.
         $modernaIds = function_exists('org_group_company_ids') ? org_group_company_ids('moderna') : [];
         $isModernaView = function_exists('org_is_moderna') && org_is_moderna();
         if ($isModernaView) {
@@ -1176,19 +1231,50 @@ class AdminController {
                 $companyFilter = 0;
             }
             if (!isset($_GET['company_id'])) {
-                $companyFilter = 0; // vista unificada del grupo por defecto
+                $companyFilter = 0;
             }
         } elseif (!empty($modernaIds) && in_array($companyFilter, $modernaIds, true)) {
             $companyFilter = (adminCompanyId() > 0 && !in_array(adminCompanyId(), $modernaIds, true)) ? adminCompanyId() : 0;
         }
-        // Contexto "Todas las empresas": el listado abre agrupado por defecto.
         if (function_exists('adminAllCompaniesActive') && adminAllCompaniesActive() && !isset($_GET['company_id'])) {
             $companyFilter = 0;
         }
         $branchFilter = $companyFilter > 0 ? adminBranchId() : 0;
-        $users = $this->userModel->getAllUsersWithCompany($companyFilter > 0 ? $companyFilter : null, $branchFilter);
+        $companies = $this->companyModel->getAllCompanies();
+        $restrictIds = [];
+        if ($isModernaView) {
+            $companies = array_values(array_filter($companies, fn($c) => in_array((int)$c->id, $modernaIds, true)));
+            if ($companyFilter === 0) {
+                $restrictIds = $modernaIds;
+            }
+        } elseif (!empty($modernaIds)) {
+            $companies = array_values(array_filter($companies, fn($c) => !in_array((int)$c->id, $modernaIds, true)));
+            if ($companyFilter === 0) {
+                $restrictIds = array_map(fn($c) => (int)$c->id, $companies);
+            }
+        }
+        $listQuery = $this->usersListQuery($companyFilter, $isModernaView);
         $recordReady = $this->employeeRecordModel->isReady();
-        $recordMetadata = $recordReady ? $this->employeeRecordModel->getUserListMetadata($companyFilter > 0 ? $companyFilter : null) : [];
+        $accessReady = (new AccessControl())->isReady();
+        $directory = $this->userModel->getAdminDirectory([
+            'company_id' => $companyFilter,
+            'branch_id' => $branchFilter,
+            'company_ids' => $restrictIds,
+            'q' => $listQuery['q'],
+            'filter' => $listQuery['filter'],
+            'city' => $listQuery['city'],
+            'branch_name' => $listQuery['branch'],
+            'page' => $listQuery['page'],
+            'per_page' => 48,
+            'record_ready' => $recordReady,
+            'access_ready' => $accessReady,
+        ]);
+        $users = $directory['users'];
+        $listQuery['page'] = $directory['page'];
+        $userIds = array_map(fn($u) => (int)$u->id, $users);
+        $recordMetadata = $recordReady && $userIds
+            ? $this->employeeRecordModel->getUserListMetadata(null, $userIds)
+            : [];
         foreach ($users as $user) {
             $meta = $recordMetadata[(int)$user->id] ?? null;
             foreach (['employee_number','employment_status','work_mode','employment_type','start_date','end_date','position_name','area_name','supervisor_name','branch_names','branch_count','has_structured_address','has_health_coverage'] as $field) {
@@ -1206,16 +1292,10 @@ class AdminController {
             $user->record_completed = count(array_filter($checks));
             $user->record_total = count($checks);
             $user->record_percent = (int)round($user->record_completed * 100 / max(1, $user->record_total));
-        }
-        $companies = $this->companyModel->getAllCompanies();
-        if ($isModernaView) {
-            if ($companyFilter === 0 && !empty($modernaIds)) {
-                $users = array_values(array_filter($users, fn($u) => in_array((int)($u->company_id ?? 0), $modernaIds, true)));
-            }
-            $companies = array_values(array_filter($companies, fn($c) => in_array((int)$c->id, $modernaIds, true)));
-        } elseif (!empty($modernaIds)) {
-            $users = array_values(array_filter($users, fn($u) => !in_array((int)($u->company_id ?? 0), $modernaIds, true)));
-            $companies = array_values(array_filter($companies, fn($c) => !in_array((int)$c->id, $modernaIds, true)));
+            $user->access_role = $user->access_role ?? AccessControl::accessRoleFromLegacyRole($user->role ?? 'empleado');
+            $user->access_role_label = AccessControl::accessRoleLabel($user->access_role, $user->role ?? '');
+            $user->role_filter_group = AccessControl::listFilterGroup($user->access_role, $user->role ?? '');
+            $user->role_drift = AccessControl::legacyRoleFromAccessRole($user->access_role) !== (string)($user->role ?? 'empleado');
         }
         $this->view('admin/users', [
             'users'          => $users,
@@ -1224,6 +1304,13 @@ class AdminController {
             'branch_filter'  => $branchFilter,
             'active_branch'  => $branchFilter > 0 ? $this->companyModel->getBranchByIdForCompany($branchFilter, $companyFilter, true) : null,
             'employee_record_ready' => $recordReady,
+            'access_control_ready' => $accessReady,
+            'list_query' => $listQuery,
+            'list_total' => $directory['total'],
+            'list_page' => $directory['page'],
+            'list_pages' => $directory['pages'],
+            'list_per_page' => $directory['per_page'],
+            'list_kpis' => $directory['kpis'],
         ]);
     }
 
@@ -1349,11 +1436,13 @@ class AdminController {
         requireAdminOnly();
         if($_SERVER['REQUEST_METHOD'] == 'POST'){
             csrf_verify();
+            $postedRoles = AccessControl::normalizePostedRole($_POST['role'] ?? 'empleado');
             $data = array_merge([
                 'username' => isset($_POST['username']) ? trim($_POST['username']) : '',
                 'password' => isset($_POST['password']) ? trim($_POST['password']) : '',
                 'confirm_password' => isset($_POST['confirm_password']) ? trim($_POST['confirm_password']) : '',
-                'role' => isset($_POST['role']) ? $_POST['role'] : 'empleado',
+                'role' => $postedRoles['legacy'],
+                'access_role' => $postedRoles['access'],
                 'company_id' => isset($_POST['company_id']) ? (int)$_POST['company_id'] : 0,
                 'branch_id' => isset($_POST['branch_id']) ? (int)$_POST['branch_id'] : 0,
                 'branch_ids' => isset($_POST['branch_ids']) && is_array($_POST['branch_ids']) ? $_POST['branch_ids'] : [],
@@ -1386,6 +1475,7 @@ class AdminController {
             if($this->userModel->findUserByUsername($data['username'])){ $data['errors']['username'] = 'Este nombre de usuario ya está en uso.'; }
             if(strlen($data['password']) < 4){ $data['errors']['password'] = 'La contraseña debe tener al menos 4 caracteres.'; }
             if($data['password'] != $data['confirm_password']){ $data['errors']['confirm_password'] = 'Las contraseñas no coinciden.'; }
+            $this->mergeEmployeeChildrenValidation($data['errors']);
             if (isset($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
                 $valid = uploads_validate_uploaded_file(
                     $_FILES['profile_picture'],
@@ -1410,31 +1500,47 @@ class AdminController {
                 $data['password_hash'] = password_hash($data['password'], PASSWORD_DEFAULT);
                 if($this->userModel->createUser($data)){
                     $createdUser = $this->userModel->getUserByUsername($data['username']);
+                    if ($createdUser && !$this->saveEmployeeChildrenFromPost((int)$createdUser->id)) {
+                        $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudieron guardar los datos de hijos/as.';
+                    }
                     if ($createdUser && (new AccessControl())->isReady()) {
                         (new AccessControl())->saveScopes((int)$createdUser->id, [[
                             'company_id' => (int)$data['company_id'],
                             'branch_id' => (int)($data['branch_id'] ?? 0),
-                            'access_role' => $data['role'] === 'admin' ? 'administrador' : ($data['role'] === 'supervisor' ? 'encargado' : 'operario'),
+                            'access_role' => $data['access_role'] ?? AccessControl::accessRoleFromLegacyRole($data['role']),
                             'is_primary' => 1, 'is_active' => 1, 'starts_on' => $data['hire_date'] ?? '',
                         ]], (int)$_SESSION['user_id']);
                     }
                     if ($createdUser && !$this->employeeRecordModel->save((int)$createdUser->id, $data['company_id'], $data['area_id'], $data['agreement_id'], $data['hire_date'], $data)) {
                         $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudo completar el legajo ampliado.';
+                    } elseif ($createdUser && $this->userModel->isVacationProfileReady()) {
+                        $this->userModel->updateVacationProfile(
+                            (int)$createdUser->id,
+                            $data['hire_date'] ?: null,
+                            (int)($data['agreement_id'] ?? 0) > 0 ? (int)$data['agreement_id'] : null,
+                            $data['probation_start_date'] ?: null
+                        );
                     }
-                    $_SESSION['flash_success'] = 'Usuario creado con éxito.';
+                    if (empty($_SESSION['flash_error'])) {
+                        $_SESSION['flash_success'] = 'Usuario creado con éxito.';
+                    }
                     redirect('admin/users');
                 }
             } else {
                 $data['companies'] = $this->companyModel->getAllCompanies();
                 $data['default_company_id'] = $this->companyModel->getDefaultCompanyId();
-                $this->view('admin/create_user', array_merge($data, $this->employmentViewData(0, $data), $this->employeeRecordViewData(0, $data['company_id'])));
+                $this->view('admin/create_user', array_merge($data, $this->employmentViewData(0, $data), $this->employeeRecordViewData(0, $data['company_id']), $this->employeeChildrenViewData(0, $_POST)));
             }
         } else {
+            $postedRoles = AccessControl::normalizePostedRole('empleado');
             $this->view('admin/create_user', array_merge([
                 'errors' => [],
+                'role' => $postedRoles['legacy'],
+                'access_role' => $postedRoles['access'],
                 'companies' => $this->companyModel->getAllCompanies(),
                 'default_company_id' => $this->companyModel->getDefaultCompanyId(),
-            ], $this->employmentViewData(), $this->employeeRecordViewData(0, (int)($this->companyModel->getDefaultCompanyId() ?? 0))));
+                'employee_group' => function_exists('org_current_group') ? org_current_group() : 'paviotti',
+            ], $this->employmentViewData(), $this->employeeRecordViewData(0, (int)($this->companyModel->getDefaultCompanyId() ?? 0)), $this->employeeChildrenViewData(0)));
         }
     }
     
@@ -1448,9 +1554,11 @@ class AdminController {
         if($_SERVER['REQUEST_METHOD'] == 'POST'){
             csrf_verify();
             $companyId = isset($_POST['company_id']) ? (int)$_POST['company_id'] : 0;
+            $postedRoles = AccessControl::normalizePostedRole($_POST['role'] ?? 'empleado');
             $data = array_merge([
                 'id' => $id,
-                'role' => isset($_POST['role']) ? $_POST['role'] : 'empleado',
+                'role' => $postedRoles['legacy'],
+                'access_role' => $postedRoles['access'],
                 'company_id' => $companyId,
                 'branch_id' => isset($_POST['branch_id']) ? (int)$_POST['branch_id'] : 0,
                 'branch_ids' => isset($_POST['branch_ids']) && is_array($_POST['branch_ids']) ? $_POST['branch_ids'] : [],
@@ -1517,6 +1625,7 @@ class AdminController {
                     $data['password_hash'] = password_hash($data['password'], PASSWORD_DEFAULT);
                 }
             }
+            $this->mergeEmployeeChildrenValidation($data['errors']);
             if(empty($data['errors'])){
                 $clockMappings = isset($_POST['clock_mappings']) && is_array($_POST['clock_mappings']) ? $_POST['clock_mappings'] : array();
                 // Primero el update del usuario; los mapeos (que borran y reinsertan) solo si aquel funcionó.
@@ -1529,13 +1638,39 @@ class AdminController {
                 if(!$this->employeeRecordModel->save($id, $data['company_id'], $data['area_id'], $data['agreement_id'], $data['hire_date'], $data)){
                     die('Error al guardar el legajo ampliado del usuario.');
                 }
+                if ($this->userModel->isVacationProfileReady()) {
+                    $this->userModel->updateVacationProfile(
+                        $id,
+                        $data['hire_date'] ?: null,
+                        (int)($data['agreement_id'] ?? 0) > 0 ? (int)$data['agreement_id'] : null,
+                        $data['probation_start_date'] ?: null
+                    );
+                }
                 if(!$this->userModel->saveClockMappings($id, $clockMappings)){
                     die('Error al guardar los IDs de los relojes.');
+                }
+                $accessModel = new AccessControl();
+                if ($accessModel->isReady()) {
+                    $existingScopes = $accessModel->getScopesForUser($id);
+                    if ($existingScopes) {
+                        $accessModel->syncPrimaryAccessRole($id, $data['access_role']);
+                    } else {
+                        $accessModel->saveScopes($id, [[
+                            'company_id' => (int)$data['company_id'],
+                            'branch_id' => (int)($data['branch_id'] ?? 0),
+                            'access_role' => $data['access_role'],
+                            'is_primary' => 1, 'is_active' => 1, 'starts_on' => $data['hire_date'] ?? '',
+                        ]], (int)$_SESSION['user_id']);
+                    }
+                }
+                if (!$this->saveEmployeeChildrenFromPost($id)) {
+                    die('Error al guardar los datos de hijos/as.');
                 }
                 if ((int)$id === (int)($_SESSION['user_id'] ?? 0)) {
                     $_SESSION['user_company_id'] = $data['company_id'];
                     $_SESSION['user_company_name'] = $this->companyModel->getNameById($data['company_id']);
                     $_SESSION['user_full_name'] = $data['full_name'];
+                    $_SESSION['user_role'] = $data['role'];
                 }
                 $_SESSION['flash_success'] = 'Usuario actualizado correctamente.';
                 redirect('admin/users');
@@ -1552,7 +1687,7 @@ class AdminController {
                 $data['clock_mappings'] = $clockMappings;
                 $data['companies'] = $this->companyModel->getAllCompanies();
                 $data['current_company_name'] = $this->companyModel->getNameById($data['company_id']);
-                $this->view('admin/edit_user', array_merge($data, $this->employmentViewData($id, $user), $this->employeeRecordViewData($id, $data['company_id'])));
+                $this->view('admin/edit_user', array_merge($data, $this->employmentViewData($id, $user), $this->employeeRecordViewData($id, $data['company_id']), $this->employeeChildrenViewData($id, $_POST)));
             }
         } else {
             $user = $this->userModel->getUserById($id);
@@ -1567,7 +1702,7 @@ class AdminController {
                 'current_company_name' => $this->companyModel->getNameById($user->company_id),
                 'errors' => array()
             );
-            $this->view('admin/edit_user', array_merge($data, $this->employmentViewData($id, $user), $this->employeeRecordViewData($id, (int)$user->company_id)));
+            $this->view('admin/edit_user', array_merge($data, $this->employmentViewData($id, $user), $this->employeeRecordViewData($id, (int)$user->company_id), $this->employeeChildrenViewData($id)));
         }
     }
 
@@ -1595,7 +1730,7 @@ class AdminController {
         } else {
             $_SESSION['flash_error'] = 'No se pudo cambiar el estado del usuario.';
         }
-        redirect('admin/users');
+        redirect($this->usersListReturnPath());
     }
 
     public function employeeCatalogs() {
@@ -1625,6 +1760,32 @@ class AdminController {
         if ($kind === 'plan') $ok = $this->employeeRecordModel->savePlan((int)($_POST['health_insurer_id'] ?? 0), $_POST['name'] ?? '', $_POST['code'] ?? '');
         $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $ok ? 'Catálogo actualizado.' : 'No se pudo guardar. Revisá los datos.';
         redirect('admin/employeeCatalogs');
+    }
+
+    public function vacationPlanilla($userId = 0) {
+        $user = adminResolveUser((int)$userId, 'admin/users');
+        if (!vacation_module_ready()) {
+            $_SESSION['flash_error'] = 'Módulo de vacaciones no instalado.';
+            redirect('admin/employeeProfile/' . (int)$user->id);
+        }
+        $request = null;
+        $requestId = (int)($_GET['request_id'] ?? 0);
+        if ($requestId > 0) {
+            $request = $this->requestModel->getRequestById($requestId);
+            if (!$request || (int)$request->user_id !== (int)$user->id) {
+                $_SESSION['flash_error'] = 'Solicitud no encontrada.';
+                redirect('admin/requests');
+            }
+            if (!vacation_is_vacation_request($request)) {
+                $_SESSION['flash_error'] = 'La planilla aplica a solicitudes de vacaciones.';
+                redirect('admin/requests');
+            }
+        }
+        $asPdf = isset($_GET['format']) && $_GET['format'] === 'pdf';
+        if (!vacation_planilla_render((int)$user->id, $request, $asPdf)) {
+            $_SESSION['flash_error'] = 'No se pudo generar la planilla.';
+            redirect('admin/employeeProfile/' . (int)$user->id . '#tab-vacation');
+        }
     }
 
     public function requests(){
@@ -1761,6 +1922,10 @@ class AdminController {
         if ($certFilename) {
             $meta['certificate_path'] = $certFilename;
         }
+        $certBackFilename = $this->uploadRequestCertificate($id, 'certificate_back', '_back', 'certificate_back_path');
+        if ($certBackFilename) {
+            $meta['certificate_back_path'] = $certBackFilename;
+        }
 
         if (!empty($meta)) {
             try {
@@ -1818,28 +1983,15 @@ class AdminController {
         redirect('admin/requests');
     }
 
-    private function uploadRequestCertificate($requestId) {
-        if (empty($_FILES['certificate']['name']) || $_FILES['certificate']['error'] !== UPLOAD_ERR_OK) {
+    private function uploadRequestCertificate($requestId, $fileKey = 'certificate', $nameSuffix = '', $metaKey = 'certificate_path') {
+        if ($metaKey === 'certificate_back_path' && !$this->requestModel->supportsCertificateBack()) {
             return null;
         }
-        $docMimes = uploads_document_mimes();
-        $valid = uploads_validate_uploaded_file(
-            $_FILES['certificate'],
-            array_keys($docMimes),
-            uploads_flat_mimes($docMimes),
-            10 * 1024 * 1024
-        );
-        if (!$valid['ok']) {
-            $_SESSION['flash_error'] = $valid['message'];
-            return null;
+        $upload = uploads_store_request_certificate($requestId, $fileKey, $nameSuffix);
+        if (!$upload['ok'] && $upload['message'] !== '') {
+            $_SESSION['flash_error'] = $upload['message'];
         }
-        uploads_ensure_private_directory('request_certificates');
-        $dir = APPROOT . '/../public/uploads/request_certificates/';
-        $filename = 'req_' . (int)$requestId . '_' . time() . '.' . $valid['ext'];
-        if (move_uploaded_file($_FILES['certificate']['tmp_name'], $dir . $filename)) {
-            return $filename;
-        }
-        return null;
+        return $upload['filename'];
     }
 
     /**
@@ -1921,6 +2073,38 @@ class AdminController {
                 return ['ok' => false, 'message' => 'Error al aprobar la solicitud.'];
             }
             return ['ok' => true, 'message' => 'Solicitud aprobada correctamente.'];
+        }
+
+        if (!empty($request->agreement_leave_type_id) && agreement_leave_types_ready()) {
+            $leaveType = (new CollectiveAgreement())->getLeaveTypeById((int)$request->agreement_leave_type_id);
+            if ($leaveType) {
+                $needsApproval = agreement_leave_type_requires_approval($leaveType);
+                if ($needsApproval && !empty($leaveType->requires_certificate) && empty($request->certificate_path)) {
+                    return ['ok' => false, 'message' => 'No se puede aprobar: falta el certificado exigido por esta licencia.'];
+                }
+                $days = vacation_count_days_in_range(
+                    $request->start_date,
+                    $request->end_date ?: $request->start_date,
+                    $leaveType->day_count_mode ?? 'calendar',
+                    (int)($request->company_id ?? 0)
+                );
+                if ($leaveType->max_days_per_event !== null && $days > (float)$leaveType->max_days_per_event) {
+                    return ['ok' => false, 'message' => 'La solicitud supera el máximo por evento de la licencia (' . vacation_format_days((float)$leaveType->max_days_per_event) . ').'];
+                }
+                if ($leaveType->max_days_per_year !== null && $leaveType->max_days_per_year !== '') {
+                    $year = (int)substr($request->start_date, 0, 4);
+                    $used = $this->requestModel->sumAgreementLeaveDaysForYear(
+                        (int)$request->user_id,
+                        (int)$leaveType->id,
+                        $year,
+                        (int)$id
+                    );
+                    if ($used + $days > (float)$leaveType->max_days_per_year) {
+                        return ['ok' => false, 'message' => 'La aprobación superaría el máximo anual de '
+                            . vacation_format_days((float)$leaveType->max_days_per_year) . ' para esta licencia.'];
+                    }
+                }
+            }
         }
 
         if ($this->requestModel->updateRequestStatus($id, 'Aprobado')) {
@@ -3497,6 +3681,66 @@ class AdminController {
 
     private function employeeRecordViewData($userId, $companyId) {
         return ['employee_record' => $this->employeeRecordModel->getFormData((int)$userId, (int)$companyId)];
+    }
+
+    private function usersListQuery($companyFilter, $isModernaView) {
+        $allowedFilters = array_merge(
+            ['all', 'access-active', 'labor-active', 'incomplete', 'multibranch', 'admin', 'supervisor', 'empleado'],
+            array_keys(AccessControl::roles())
+        );
+        $filter = (string)($_GET['filter'] ?? 'all');
+        if (!in_array($filter, $allowedFilters, true)) {
+            $filter = 'all';
+        }
+        $q = trim((string)($_GET['q'] ?? ''));
+        if (mb_strlen($q) > 80) {
+            $q = mb_substr($q, 0, 80);
+        }
+        $city = '';
+        $branch = '';
+        if ($isModernaView) {
+            $cities = function_exists('org_branches_by_city') ? org_branches_by_city() : [];
+            $requestedCity = trim((string)($_GET['city'] ?? ''));
+            if ($requestedCity !== '' && isset($cities[$requestedCity])) {
+                $city = $requestedCity;
+                $requestedBranch = trim((string)($_GET['branch'] ?? ''));
+                if ($requestedBranch !== '' && in_array($requestedBranch, $cities[$requestedCity], true)) {
+                    $branch = $requestedBranch;
+                }
+            }
+        }
+        return [
+            'company_id' => (int)$companyFilter,
+            'q' => $q,
+            'filter' => $filter,
+            'city' => $city,
+            'branch' => $branch,
+            'page' => max(1, (int)($_GET['page'] ?? 1)),
+        ];
+    }
+
+    private function usersListReturnPath() {
+        $raw = trim((string)($_POST['return_query'] ?? ''));
+        if ($raw === '') {
+            return 'admin/users';
+        }
+        parse_str($raw, $parsed);
+        if (!is_array($parsed)) {
+            return 'admin/users';
+        }
+        $allowed = ['company_id', 'q', 'filter', 'city', 'branch', 'page'];
+        $clean = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $parsed)) {
+                continue;
+            }
+            $value = is_scalar($parsed[$key]) ? trim((string)$parsed[$key]) : '';
+            if ($value === '' || ($key === 'filter' && $value === 'all') || ($key === 'page' && (int)$value <= 1) || ($key === 'company_id' && (int)$value <= 0)) {
+                continue;
+            }
+            $clean[$key] = $value;
+        }
+        return $clean ? ('admin/users?' . http_build_query($clean)) : 'admin/users';
     }
 
     private function validateUserArea(array &$data) {

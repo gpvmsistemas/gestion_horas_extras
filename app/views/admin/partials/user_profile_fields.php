@@ -109,16 +109,18 @@ if ($birthVal !== '' && preg_match('/^\d{4}-\d{2}-\d{2}/', $birthVal)) {
             <?php endforeach; ?>
         </select>
     </div>
-    <div class="col-md-2 mb-3">
-        <label for="children_count" class="form-label">Hijos</label>
-        <input type="number" name="children_count" id="children_count" class="form-control" min="0" max="20"
-               value="<?php echo htmlspecialchars((string)$pf('children_count')); ?>" autocomplete="off">
-    </div>
-    <div class="col-md-6 mb-3">
-        <label for="hr_notes" class="form-label">Observaciones de RRHH <small class="text-muted">(hijos, referencias, detalle)</small></label>
+    <div class="col-md-8 mb-3">
+        <label for="hr_notes" class="form-label">Observaciones de RRHH <small class="text-muted">(referencias, detalle interno)</small></label>
         <textarea name="hr_notes" id="hr_notes" class="form-control" rows="2" autocomplete="off"><?php echo htmlspecialchars((string)$pf('hr_notes')); ?></textarea>
     </div>
 </div>
+<?php
+$employeeChildrenReady = !empty($employeeChildrenReady ?? ($data['employee_children_ready'] ?? false));
+$employeeChildren = $employeeChildren ?? ($data['employee_children'] ?? []);
+$hasChildren = array_key_exists('has_children', $data ?? []) ? !empty($data['has_children']) : count($employeeChildren) > 0;
+$childrenUi = 'admin';
+require APPROOT . '/views/inc/partials/employee_children_fields.php';
+?>
 <?php endif; ?>
 
 <h6 class="mb-2 text-muted small text-uppercase">Contacto de emergencia</h6>

@@ -24,6 +24,10 @@ class VacationEntitlementService {
         if (!empty($user->agreement_id)) {
             return $this->agreementModel->getById((int)$user->agreement_id);
         }
+        $assignmentAgreementId = $this->getPrimaryAssignmentAgreementId((int)$user->id, (int)($user->company_id ?? 0));
+        if ($assignmentAgreementId > 0) {
+            return $this->agreementModel->getById($assignmentAgreementId);
+        }
         if (!empty($user->area_id)) {
             $area = (new Area($this->db))->getById((int)$user->area_id);
             if ($area && !empty($area->agreement_id)) {
@@ -66,6 +70,34 @@ class VacationEntitlementService {
             'no_agreement' => $noAgreement,
             'low_balance' => $lowBalance,
         ];
+    }
+
+    private function getPrimaryAssignmentAgreementId($userId, $companyId) {
+        if ($userId <= 0) {
+            return 0;
+        }
+        try {
+            $this->db->query("SHOW TABLES LIKE 'employee_company_assignments'");
+            if (!$this->db->single()) {
+                return 0;
+            }
+            if ($companyId > 0) {
+                $this->db->query('SELECT agreement_id FROM employee_company_assignments
+                    WHERE user_id = :uid AND company_id = :cid AND is_primary = 1
+                    ORDER BY id DESC LIMIT 1');
+                $this->db->bind(':uid', $userId);
+                $this->db->bind(':cid', $companyId);
+            } else {
+                $this->db->query('SELECT agreement_id FROM employee_company_assignments
+                    WHERE user_id = :uid AND is_primary = 1
+                    ORDER BY id DESC LIMIT 1');
+                $this->db->bind(':uid', $userId);
+            }
+            $row = $this->db->single();
+            return ($row && !empty($row->agreement_id)) ? (int)$row->agreement_id : 0;
+        } catch (Throwable $e) {
+            return 0;
+        }
     }
 
     public function getEffectiveAgreementId($userId) {
@@ -202,7 +234,9 @@ class VacationEntitlementService {
             return null;
         }
         $reference = $asOfDate ?: date('Y-m-d');
-        $months = $this->getSeniorityMonths($userId, date('Y-12-31', strtotime($reference)));
+        // LCT art. 150: antigüedad al 31 de diciembre del año del período.
+        $cutDate = date('Y-12-31', strtotime($reference));
+        $months = $this->getSeniorityMonths($userId, $cutDate);
         $rules = $this->agreementModel->getRules((int)$agreement->id);
         foreach ($rules as $rule) {
             $min = (int)$rule->min_months;
@@ -229,6 +263,34 @@ class VacationEntitlementService {
     }
 
     /**
+     * Resuelve fechas + label de un período objetivo.
+     * Con label (`2027` / `2026-2027`) recalcula bounds del convenio; sin label usa la fecha de referencia.
+     * @return array{period_start:string,period_end:string,period_label:string}|null
+     */
+    public function resolvePeriodBounds($userId, $periodLabel = null, $asOfDate = null) {
+        $user = $this->userModel->getUserById((int)$userId);
+        $agreement = $this->getEffectiveAgreement($user);
+        if (!$agreement) {
+            return null;
+        }
+        $startMonth = (int)$agreement->period_start_month;
+        $startDay = (int)$agreement->period_start_day;
+        $label = trim((string)($periodLabel ?? ''));
+        if ($label !== '') {
+            $year = vacation_period_year_from_label($label);
+            if ($year < 1970 || $year > 2100) {
+                return null;
+            }
+            return vacation_period_bounds($year, $startMonth, $startDay);
+        }
+        $ref = $asOfDate ?: date('Y-m-d');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$ref)) {
+            $ref = date('Y-m-d');
+        }
+        return vacation_period_for_date($ref, $startMonth, $startDay);
+    }
+
+    /**
      * Liquida un período para un empleado (crea o actualiza vacation_balance_periods).
      * @return array{ok:bool,message:string,period_id?:int}
      */
@@ -248,12 +310,9 @@ class VacationEntitlementService {
             return ['ok' => false, 'message' => 'Sin convenio asignado (empleado o empresa).'];
         }
 
-        $bounds = $this->getPeriodBoundsForDate($userId, $asOfDate);
+        $bounds = $this->resolvePeriodBounds($userId, $periodLabel, $asOfDate);
         if (!$bounds) {
-            return ['ok' => false, 'message' => 'No se pudo calcular el período.'];
-        }
-        if ($periodLabel) {
-            $bounds['period_label'] = $periodLabel;
+            return ['ok' => false, 'message' => 'No se pudo calcular el período (revisá el año o el convenio).'];
         }
 
         $cutDate = $bounds['period_end'];
@@ -273,12 +332,38 @@ class VacationEntitlementService {
                 if (!$this->balanceModel->updatePeriodBalances((int)$existing->id, $daysEntitled, $daysTaken)) {
                     throw new RuntimeException('No se pudo actualizar el período.');
                 }
+                // Repara fechas/convenio/regla si el período se creó mal (label ≠ fechas).
+                $metaNeedsFix = ($existing->period_start ?? '') !== $bounds['period_start']
+                    || ($existing->period_end ?? '') !== $bounds['period_end']
+                    || (int)($existing->agreement_id ?? 0) !== (int)$agreement->id
+                    || (int)($existing->agreement_rule_id ?? 0) !== (int)$rule->id
+                    || (string)($existing->count_mode_snapshot ?? '') !== (string)$rule->day_count_mode;
+                if ($metaNeedsFix) {
+                    if (!$this->balanceModel->updatePeriodLiquidationMeta((int)$existing->id, [
+                        'period_start' => $bounds['period_start'],
+                        'period_end' => $bounds['period_end'],
+                        'agreement_id' => (int)$agreement->id,
+                        'agreement_rule_id' => (int)$rule->id,
+                        'count_mode_snapshot' => $rule->day_count_mode,
+                        'liquidated_at' => date('Y-m-d H:i:s'),
+                        'liquidated_by' => $adminId > 0 ? $adminId : null,
+                    ])) {
+                        throw new RuntimeException('No se pudieron corregir las fechas del período.');
+                    }
+                }
                 $periodId = (int)$existing->id;
                 if (abs($difference) > 0.001) {
                     $this->balanceModel->addMovement([
                         'period_id'=>$periodId, 'user_id'=>$userId, 'movement_type'=>'adjustment',
                         'source'=>'liquidation', 'days'=>$difference,
                         'notes'=>'Recalculo del período ' . $bounds['period_label'],
+                        'created_by'=>$adminId > 0 ? $adminId : (int)($_SESSION['user_id'] ?? 0),
+                    ]);
+                } elseif ($metaNeedsFix) {
+                    $this->balanceModel->addMovement([
+                        'period_id'=>$periodId, 'user_id'=>$userId, 'movement_type'=>'adjustment',
+                        'source'=>'liquidation', 'days'=>0,
+                        'notes'=>'Corrección de fechas/convenio del período ' . $bounds['period_label'],
                         'created_by'=>$adminId > 0 ? $adminId : (int)($_SESSION['user_id'] ?? 0),
                     ]);
                 }
@@ -401,53 +486,220 @@ class VacationEntitlementService {
     /**
      * Cuenta empleados activos listos / omitidos para liquidación masiva.
      */
-    public function getBatchLiquidationPreview($companyId) {
-        $employees = $this->userModel->getActiveEmployeesForVacationLiquidation($companyId);
-        $ready = 0;
-        $noHire = 0;
-        $noAgreement = 0;
-        foreach ($employees as $emp) {
-            if (empty($emp->hire_date)) {
-                $noHire++;
-                continue;
-            }
-            if (!$this->getEffectiveAgreement($emp)) {
-                $noAgreement++;
-                continue;
-            }
-            $ready++;
-        }
+    public function getBatchLiquidationPreview($companyId, $periodLabel = null) {
+        $preview = $this->previewCompanyPeriod($companyId, $periodLabel);
         return [
-            'total_active' => count($employees),
-            'ready' => $ready,
-            'no_hire_date' => $noHire,
-            'no_agreement' => $noAgreement,
+            'total_active' => (int)($preview['stats']['total_active'] ?? 0),
+            'ready' => (int)($preview['stats']['ready'] ?? 0),
+            'no_hire_date' => (int)($preview['stats']['no_hire'] ?? 0),
+            'no_agreement' => (int)($preview['stats']['no_agreement'] ?? 0),
+            'already_liquidated' => (int)($preview['stats']['already_liquidated'] ?? 0),
+            'to_create' => (int)($preview['stats']['to_create'] ?? 0),
+            'days_total' => (float)($preview['stats']['days_total'] ?? 0),
+            'period_label' => $preview['period_label'] ?? '',
         ];
     }
 
     /**
-     * Liquida el período vigente para todos los empleados activos de la empresa (no inactivos / baja).
+     * Roster de liquidación por empresa y período objetivo (días según convenio).
+     * @return array{period_label:string,rows:array,stats:array}
+     */
+    public function previewCompanyPeriod($companyId, $periodLabel = null) {
+        $companyId = (int)$companyId;
+        $label = trim((string)($periodLabel ?? ''));
+        if ($label === '' || vacation_period_year_from_label($label) <= 0) {
+            $label = vacation_default_target_period_label();
+        }
+
+        $emptyStats = [
+            'total_active' => 0,
+            'ready' => 0,
+            'no_hire' => 0,
+            'no_agreement' => 0,
+            'already_liquidated' => 0,
+            'to_create' => 0,
+            'with_takes' => 0,
+            'days_total' => 0.0,
+            'blocked' => 0,
+        ];
+        if ($companyId <= 0) {
+            return [
+                'period_label' => $label,
+                'rows' => [],
+                'stats' => $emptyStats,
+                'error' => 'Seleccioná una empresa en el contexto de sesión.',
+            ];
+        }
+
+        $employees = $this->userModel->getActiveEmployeesForVacationLiquidation($companyId);
+        $modes = vacation_day_count_modes();
+        $rows = [];
+        $stats = [
+            'total_active' => count($employees),
+            'ready' => 0,
+            'no_hire' => 0,
+            'no_agreement' => 0,
+            'already_liquidated' => 0,
+            'to_create' => 0,
+            'with_takes' => 0,
+            'days_total' => 0.0,
+            'blocked' => 0,
+        ];
+
+        foreach ($employees as $emp) {
+            $uid = (int)$emp->id;
+            $row = [
+                'user_id' => $uid,
+                'full_name' => $emp->full_name,
+                'hire_date' => $emp->hire_date ?? null,
+                'status' => 'ready',
+                'agreement_id' => null,
+                'agreement_code' => null,
+                'agreement_name' => null,
+                'seniority_months' => null,
+                'rule_id' => null,
+                'rule_range' => null,
+                'rule_notes' => null,
+                'days_entitled' => null,
+                'day_count_mode' => null,
+                'day_count_mode_label' => null,
+                'period_label' => $label,
+                'period_start' => null,
+                'period_end' => null,
+                'existing_period_id' => null,
+                'existing_entitled' => null,
+                'existing_taken' => null,
+                'existing_pending' => null,
+                'message' => '',
+            ];
+
+            if (empty($emp->hire_date)) {
+                $row['status'] = 'missing_hire';
+                $row['message'] = 'Sin fecha de ingreso formal';
+                $stats['no_hire']++;
+                $stats['blocked']++;
+                $rows[] = $row;
+                continue;
+            }
+
+            $agreement = $this->getEffectiveAgreement($emp);
+            if (!$agreement) {
+                $row['status'] = 'missing_agreement';
+                $row['message'] = 'Sin convenio efectivo';
+                $stats['no_agreement']++;
+                $stats['blocked']++;
+                $rows[] = $row;
+                continue;
+            }
+
+            $bounds = $this->resolvePeriodBounds($uid, $label);
+            if (!$bounds) {
+                $row['status'] = 'blocked';
+                $row['message'] = 'No se pudo calcular el período';
+                $stats['blocked']++;
+                $rows[] = $row;
+                continue;
+            }
+
+            $cutDate = $bounds['period_end'];
+            $months = $this->seniorityMonthsBetween($emp->hire_date, date('Y-12-31', strtotime($cutDate)));
+            $rule = $this->getApplicableRule($uid, $cutDate);
+            $row['agreement_id'] = (int)$agreement->id;
+            $row['agreement_code'] = $agreement->code;
+            $row['agreement_name'] = $agreement->name;
+            $row['seniority_months'] = $months;
+            $row['period_label'] = $bounds['period_label'];
+            $row['period_start'] = $bounds['period_start'];
+            $row['period_end'] = $bounds['period_end'];
+
+            if (!$rule) {
+                $row['status'] = 'blocked';
+                $row['message'] = 'Sin regla para la antigüedad';
+                $stats['blocked']++;
+                $rows[] = $row;
+                continue;
+            }
+
+            $days = (float)$rule->days_entitled;
+            $row['rule_id'] = (int)$rule->id;
+            $row['rule_range'] = (int)$rule->min_months . '–' . ($rule->max_months !== null ? (int)$rule->max_months : '∞') . ' meses';
+            $row['rule_notes'] = $rule->notes ?? '';
+            $row['days_entitled'] = $days;
+            $row['day_count_mode'] = $rule->day_count_mode;
+            $row['day_count_mode_label'] = $modes[$rule->day_count_mode] ?? $rule->day_count_mode;
+            $stats['days_total'] += $days;
+
+            $existing = $this->balanceModel->getPeriodByUserLabel($uid, $bounds['period_label'], 'annual');
+            if ($existing) {
+                $taken = (float)$existing->days_taken;
+                $row['existing_period_id'] = (int)$existing->id;
+                $row['existing_entitled'] = (float)$existing->days_entitled;
+                $row['existing_taken'] = $taken;
+                $row['existing_pending'] = vacation_period_pending($existing);
+                if ($taken > 0.001) {
+                    $row['status'] = 'exists_with_takes';
+                    $row['message'] = 'Ya liquidado · con tomas';
+                    $stats['with_takes']++;
+                } else {
+                    $row['status'] = 'exists';
+                    $row['message'] = 'Ya liquidado';
+                }
+                $stats['already_liquidated']++;
+            } else {
+                $row['status'] = 'ready';
+                $row['message'] = 'Listo para liquidar';
+                $stats['to_create']++;
+                $stats['ready']++;
+            }
+            $rows[] = $row;
+        }
+
+        usort($rows, static function ($a, $b) {
+            return strcasecmp((string)$a['full_name'], (string)$b['full_name']);
+        });
+
+        return [
+            'period_label' => $label,
+            'rows' => $rows,
+            'stats' => $stats,
+        ];
+    }
+
+    /**
+     * Liquida el período objetivo para empleados activos de la empresa (no inactivos / baja).
+     * Recalcula fechas por convenio; no pisa solo el label.
      * @return array{ok:bool,period_label:string,liquidated:int,skipped:int,failed:int,details:array,message:string}
      */
-    public function liquidateCompanyBatch($companyId, $periodLabel = null, $adminId = 0) {
+    public function liquidateCompanyBatch($companyId, $periodLabel = null, $adminId = 0, $onlyMissing = false) {
         if (!$this->isReady()) {
             return ['ok' => false, 'message' => 'Módulo de vacaciones no instalado.'];
         }
         $companyId = (int)$companyId;
         if ($companyId <= 0) {
-            return ['ok' => false, 'message' => 'Seleccioná una empresa.'];
+            return ['ok' => false, 'message' => 'Seleccioná una empresa en el contexto de sesión.', 'liquidated' => 0, 'skipped' => 0, 'failed' => 0, 'details' => [], 'period_label' => ''];
+        }
+
+        $resolvedLabel = trim((string)($periodLabel ?? ''));
+        if ($resolvedLabel === '' || vacation_period_year_from_label($resolvedLabel) <= 0) {
+            $resolvedLabel = vacation_default_target_period_label();
+        }
+
+        if ($onlyMissing) {
+            $preview = $this->previewCompanyPeriod($companyId, $resolvedLabel);
+            if ((int)($preview['stats']['to_create'] ?? 0) <= 0) {
+                return [
+                    'ok' => true,
+                    'period_label' => $resolvedLabel,
+                    'liquidated' => 0,
+                    'skipped' => (int)($preview['stats']['total_active'] ?? 0),
+                    'failed' => 0,
+                    'details' => [],
+                    'message' => 'Nada para crear en el período ' . $resolvedLabel . ': no hay empleados listos sin liquidar.',
+                ];
+            }
         }
 
         $employees = $this->userModel->getActiveEmployeesForVacationLiquidation($companyId);
-        $resolvedLabel = $periodLabel;
-        if (($resolvedLabel === null || $resolvedLabel === '') && !empty($employees)) {
-            $bounds = $this->getPeriodBoundsForDate((int)$employees[0]->id);
-            $resolvedLabel = $bounds['period_label'] ?? '';
-        }
-        if ($resolvedLabel === '') {
-            $resolvedLabel = (string)date('Y');
-        }
-
         $liquidated = 0;
         $skipped = 0;
         $failed = 0;
@@ -474,6 +726,22 @@ class VacationEntitlementService {
                     'message' => 'Sin convenio (empleado o empresa)',
                 ];
                 continue;
+            }
+
+            if ($onlyMissing) {
+                $bounds = $this->resolvePeriodBounds($uid, $resolvedLabel);
+                $canonical = $bounds['period_label'] ?? $resolvedLabel;
+                $existing = $this->balanceModel->getPeriodByUserLabel($uid, $canonical, 'annual');
+                if ($existing) {
+                    $skipped++;
+                    $details[] = [
+                        'user_id' => $uid,
+                        'name' => $emp->full_name,
+                        'status' => 'skipped',
+                        'message' => 'Ya tiene período ' . $canonical,
+                    ];
+                    continue;
+                }
             }
 
             $result = $this->liquidatePeriod($uid, $resolvedLabel, $adminId);

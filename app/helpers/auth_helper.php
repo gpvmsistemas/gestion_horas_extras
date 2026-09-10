@@ -155,7 +155,7 @@ function admin_company_switch_return_path($returnUrl) {
     $contextRoutes = [
         '#^/admin/(?:employeeProfile|employeeDetails|editUser|editEntry|editRequest)/#' => 'admin/users',
         '#^/admin/editCompany/#' => 'admin/companies',
-        '#^/vacationAdmin/(?:vacationSetup|editAgreement)/#' => 'vacationAdmin/agreements',
+        '#^/vacationAdmin/(?:vacationSetup|editAgreement)/#' => 'vacationAdmin/panel',
         '#^/salaryAdvanceAdmin/(?:installments|history|receipt)/#' => 'salaryAdvanceAdmin/index',
         '#^/cpTaskAdmin/closureDetail/#' => 'cpTaskAdmin/reports',
         '#^/trainingAdmin/(?:courseEdit|previewLesson)/#' => 'trainingAdmin/courses',

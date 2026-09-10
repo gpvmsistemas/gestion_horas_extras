@@ -3,6 +3,7 @@
     "description": "Gestion horas extras",
     "require": {
         "php": ">=7.4",
+        "minishlink/web-push": "^9.0",
         "phpmailer/phpmailer": "^6.9"
     },
     "config": {

@@ -26,11 +26,72 @@ class Request {
             return $id ?: null;
         }
         $this->db->query("SELECT id FROM request_types
-            WHERE LOWER(name) LIKE '%vacac%' OR LOWER(name) LIKE '%licencia%'
+            WHERE LOWER(name) LIKE '%vacac%'
             ORDER BY id ASC LIMIT 1");
         $row = $this->db->single();
         $id = $row ? (int)$row->id : 0;
         return $id > 0 ? $id : null;
+    }
+
+    /** ID del tipo genérico Licencia (solicitudes ligadas al catálogo del convenio). */
+    public function getLicenseRequestTypeId() {
+        static $id = null;
+        if ($id !== null) {
+            return $id ?: null;
+        }
+        $this->db->query("SELECT id FROM request_types WHERE LOWER(name) = 'licencia' ORDER BY id ASC LIMIT 1");
+        $row = $this->db->single();
+        if (!$row) {
+            $this->db->query("SELECT id FROM request_types WHERE LOWER(name) LIKE '%licencia%' ORDER BY id ASC LIMIT 1");
+            $row = $this->db->single();
+        }
+        $id = $row ? (int)$row->id : 0;
+        return $id > 0 ? $id : null;
+    }
+
+    public function supportsAgreementLeaveTypes() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        $this->db->query("SHOW COLUMNS FROM requests LIKE 'agreement_leave_type_id'");
+        $ready = (bool)$this->db->single();
+        return $ready;
+    }
+
+    public function supportsCertificateBack() {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        $this->db->query("SHOW COLUMNS FROM requests LIKE 'certificate_back_path'");
+        $ready = (bool)$this->db->single();
+        return $ready;
+    }
+
+    private function requestTypeSelectSql() {
+        if (!$this->supportsAgreementLeaveTypes()) {
+            return 'rt.name AS type_name, rt.color';
+        }
+        $approvalCol = function_exists('agreement_leave_type_supports_requires_approval') && agreement_leave_type_supports_requires_approval()
+            ? 'alt.requires_approval AS agreement_leave_requires_approval,'
+            : 'NULL AS agreement_leave_requires_approval,';
+        return "COALESCE(alt.name, rt.name) AS type_name,
+                CASE WHEN alt.id IS NOT NULL THEN '#0dcaf0' ELSE rt.color END AS color,
+                alt.name AS agreement_leave_name,
+                alt.code AS agreement_leave_code,
+                alt.requires_certificate AS agreement_leave_requires_certificate,
+                {$approvalCol}
+                alt.legal_reference AS agreement_leave_legal_reference,
+                alt.max_days_per_year AS agreement_leave_max_days_per_year,
+                alt.max_days_per_event AS agreement_leave_max_days_per_event";
+    }
+
+    private function requestLeaveTypeJoinSql() {
+        if (!$this->supportsAgreementLeaveTypes()) {
+            return '';
+        }
+        return ' LEFT JOIN collective_agreement_leave_types alt ON alt.id = r.agreement_leave_type_id';
     }
 
     /**
@@ -39,13 +100,80 @@ class Request {
      * @return bool True si se creó con éxito, false si no.
      */
     public function createRequest($data){
-        $this->db->query('INSERT INTO requests (user_id, request_type_id, start_date, end_date, reason) VALUES (:user_id, :request_type_id, :start_date, :end_date, :reason)');
+        $leaveTypeId = !empty($data['agreement_leave_type_id']) ? (int)$data['agreement_leave_type_id'] : 0;
+        $hasCert = !empty($data['certificate_path']);
+        if ($this->supportsAgreementLeaveTypes() && $leaveTypeId > 0) {
+            if ($hasCert) {
+                $this->db->query('INSERT INTO requests (user_id, request_type_id, agreement_leave_type_id, start_date, end_date, reason, certificate_path)
+                    VALUES (:user_id, :request_type_id, :agreement_leave_type_id, :start_date, :end_date, :reason, :certificate_path)');
+                $this->db->bind(':certificate_path', $data['certificate_path']);
+            } else {
+                $this->db->query('INSERT INTO requests (user_id, request_type_id, agreement_leave_type_id, start_date, end_date, reason)
+                    VALUES (:user_id, :request_type_id, :agreement_leave_type_id, :start_date, :end_date, :reason)');
+            }
+            $this->db->bind(':agreement_leave_type_id', $leaveTypeId);
+        } elseif ($hasCert) {
+            $this->db->query('INSERT INTO requests (user_id, request_type_id, start_date, end_date, reason, certificate_path)
+                VALUES (:user_id, :request_type_id, :start_date, :end_date, :reason, :certificate_path)');
+            $this->db->bind(':certificate_path', $data['certificate_path']);
+        } else {
+            $this->db->query('INSERT INTO requests (user_id, request_type_id, start_date, end_date, reason) VALUES (:user_id, :request_type_id, :start_date, :end_date, :reason)');
+        }
         $this->db->bind(':user_id', $data['user_id']);
         $this->db->bind(':request_type_id', $data['request_type_id']);
         $this->db->bind(':start_date', $data['start_date']);
         $this->db->bind(':end_date', $data['end_date']);
         $this->db->bind(':reason', $data['reason']);
         return $this->db->execute();
+    }
+
+    public function lastInsertId() {
+        return $this->db->lastInsertId();
+    }
+
+    /**
+     * Suma días computables de una licencia de convenio en el año calendario (pendientes + aprobadas).
+     */
+    public function sumAgreementLeaveDaysForYear($userId, $leaveTypeId, $year, $excludeRequestId = 0) {
+        if (!$this->supportsAgreementLeaveTypes() || (int)$leaveTypeId <= 0) {
+            return 0.0;
+        }
+        $leaveType = (new CollectiveAgreement($this->db))->getLeaveTypeById($leaveTypeId);
+        if (!$leaveType) {
+            return 0.0;
+        }
+        $user = (new User($this->db))->getUserById((int)$userId);
+        $companyId = (int)($user->company_id ?? 0);
+        $branchId = (int)($user->branch_id ?? 0);
+        $yearStart = sprintf('%04d-01-01', (int)$year);
+        $yearEnd = sprintf('%04d-12-31', (int)$year);
+        $this->db->query("SELECT r.id, r.start_date, r.end_date
+            FROM requests r
+            WHERE r.user_id = :uid
+              AND r.agreement_leave_type_id = :lid
+              AND r.status IN ('Pendiente', 'Aprobado')
+              AND r.id <> :exclude
+              AND r.start_date <= :yend
+              AND IFNULL(r.end_date, r.start_date) >= :ystart");
+        $this->db->bind(':uid', (int)$userId);
+        $this->db->bind(':lid', (int)$leaveTypeId);
+        $this->db->bind(':exclude', (int)$excludeRequestId);
+        $this->db->bind(':yend', $yearEnd);
+        $this->db->bind(':ystart', $yearStart);
+        $total = 0.0;
+        foreach ($this->db->resultSet() as $row) {
+            $rangeStart = $row->start_date < $yearStart ? $yearStart : $row->start_date;
+            $rangeEnd = ($row->end_date ?: $row->start_date) > $yearEnd ? $yearEnd : ($row->end_date ?: $row->start_date);
+            $total += vacation_count_days_in_range(
+                $rangeStart,
+                $rangeEnd,
+                $leaveType->day_count_mode ?? 'calendar',
+                $companyId,
+                $this->db,
+                $branchId
+            );
+        }
+        return $total;
     }
 
     /**
@@ -55,9 +183,10 @@ class Request {
      */
     public function getRequestsByUserId($userId){
         $this->db->query("
-            SELECT r.*, rt.name as type_name, rt.color 
+            SELECT r.*, {$this->requestTypeSelectSql()}
             FROM requests r
             JOIN request_types rt ON r.request_type_id = rt.id
+            {$this->requestLeaveTypeJoinSql()}
             WHERE r.user_id = :user_id 
             ORDER BY r.start_date DESC
         ");
@@ -74,10 +203,11 @@ class Request {
     }
 
     public function getAllRequestsByCompany($companyId) {
-        $sql = "SELECT r.*, u.full_name, u.profile_picture, rt.name AS type_name, rt.color
+        $sql = "SELECT r.*, u.full_name, u.profile_picture, {$this->requestTypeSelectSql()}
                 FROM requests r
                 JOIN users u ON r.user_id = u.id
-                JOIN request_types rt ON r.request_type_id = rt.id";
+                JOIN request_types rt ON r.request_type_id = rt.id
+                {$this->requestLeaveTypeJoinSql()}";
         if ($companyId !== null) {
             $sql .= " WHERE u.company_id = :company_id";
         }
@@ -92,11 +222,12 @@ class Request {
     /** Versión multi-empresa (contexto "Todas las empresas del grupo"). */
     public function getAllRequestsByCompanies(array $companyIds) {
         $in = implode(',', array_map('intval', $companyIds ?: [0]));
-        $sql = "SELECT r.*, u.full_name, u.profile_picture, rt.name AS type_name, rt.color, c.name AS company_name
+        $sql = "SELECT r.*, u.full_name, u.profile_picture, {$this->requestTypeSelectSql()}, c.name AS company_name
                 FROM requests r
                 JOIN users u ON r.user_id = u.id
                 JOIN request_types rt ON r.request_type_id = rt.id
                 LEFT JOIN companies c ON c.id = u.company_id
+                {$this->requestLeaveTypeJoinSql()}
                 WHERE u.company_id IN ($in)
                 ORDER BY FIELD(r.status, 'Pendiente', 'Aprobado', 'Rechazado'), r.start_date DESC";
         $this->db->query($sql);
@@ -106,10 +237,11 @@ class Request {
     /** Una solicitud si pertenece a alguna de las empresas del contexto. */
     public function getRequestByIdForCompanies($id, array $companyIds) {
         $in = implode(',', array_map('intval', $companyIds ?: [0]));
-        $this->db->query("SELECT r.*, u.full_name, u.company_id, rt.name AS type_name
+        $this->db->query("SELECT r.*, u.full_name, u.company_id, {$this->requestTypeSelectSql()}
                 FROM requests r
                 JOIN users u ON r.user_id = u.id
                 JOIN request_types rt ON r.request_type_id = rt.id
+                {$this->requestLeaveTypeJoinSql()}
                 WHERE r.id = :id AND u.company_id IN ($in)");
         $this->db->bind(':id', (int)$id);
         return $this->db->single();
@@ -126,10 +258,11 @@ class Request {
      */
     public function getRequestById($id){
         $this->db->query("
-            SELECT r.*, u.full_name, u.profile_picture, u.company_id, rt.name AS type_name, rt.color
+            SELECT r.*, u.full_name, u.profile_picture, u.company_id, {$this->requestTypeSelectSql()}
             FROM requests r
             JOIN users u ON r.user_id = u.id
             JOIN request_types rt ON r.request_type_id = rt.id
+            {$this->requestLeaveTypeJoinSql()}
             WHERE r.id = :id
         ");
         $this->db->bind(':id', $id);
@@ -216,6 +349,9 @@ class Request {
         if (array_key_exists('certificate_path', $data)) {
             $sets[] = 'certificate_path = :certificate_path';
         }
+        if ($this->supportsCertificateBack() && array_key_exists('certificate_back_path', $data)) {
+            $sets[] = 'certificate_back_path = :certificate_back_path';
+        }
         if (empty($sets)) {
             return true;
         }
@@ -226,6 +362,9 @@ class Request {
         }
         if (array_key_exists('certificate_path', $data)) {
             $this->db->bind(':certificate_path', $data['certificate_path']);
+        }
+        if ($this->supportsCertificateBack() && array_key_exists('certificate_back_path', $data)) {
+            $this->db->bind(':certificate_back_path', $data['certificate_back_path']);
         }
         return $this->db->execute();
     }

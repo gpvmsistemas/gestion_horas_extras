@@ -21,3 +21,10 @@
  * Sin definir: solo Moderna. Para el go-live de Paviotti:
  */
 // define('RECRUITING_ORGS', ['moderna', 'paviotti']);
+
+/**
+ * Web Push (PWA) — generar claves: php scripts/generate_vapid_keys.php
+ */
+// define('VAPID_PUBLIC_KEY', '...');
+// define('VAPID_PRIVATE_KEY', '...');
+// define('VAPID_SUBJECT', 'mailto:rrhh@tu-dominio.com');

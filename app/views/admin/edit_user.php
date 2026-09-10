@@ -2,8 +2,14 @@
 
 <?php
 $editUser = $data['user'];
-$editRoleLabels = ['admin' => 'Administrador', 'supervisor' => 'Supervisor', 'empleado' => 'Empleado'];
-$editRoleLabel = $editRoleLabels[$editUser->role] ?? ucfirst((string)$editUser->role);
+$editAccessRole = $data['access_role'] ?? '';
+if ($editAccessRole === '' || !isset(AccessControl::roles()[$editAccessRole])) {
+    $editScope = (new AccessControl())->isReady()
+        ? (new AccessControl())->currentScopeForUser((int)$editUser->id)
+        : null;
+    $editAccessRole = $editScope->access_role ?? AccessControl::accessRoleFromLegacyRole($editUser->role ?? 'empleado');
+}
+$editRoleLabel = AccessControl::accessRoleLabel($editAccessRole, $editUser->role ?? '');
 $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_company_name'] : 'Sin empresa asignada';
 ?>
 
@@ -55,6 +61,7 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
                 <a href="#datos-personales"><i class="fas fa-user"></i><span>Datos personales</span></a>
                 <a href="#organizacion"><i class="fas fa-sitemap"></i><span>Organización</span></a>
                 <a href="#acceso"><i class="fas fa-key"></i><span>Acceso y rol</span></a>
+                <a href="#permisos"><i class="fas fa-user-shield"></i><span>Perfiles y permisos</span></a>
                 <a href="#configuracion-laboral"><i class="fas fa-briefcase"></i><span>Configuración laboral</span></a>
                 <a href="#relojes"><i class="fas fa-fingerprint"></i><span>Relojes</span></a>
             </nav>
@@ -159,16 +166,7 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
                     <div><span>Seguridad</span><h2>Acceso y rol</h2><p>Permisos del sistema y actualización opcional de contraseña.</p></div>
                 </div>
                 <div class="edit-user-section-body">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="role" class="form-label">Rol</label>
-                            <select name="role" id="role" class="form-select">
-                                <option value="empleado" <?php if($data['user']->role == 'empleado') echo 'selected'; ?>>Empleado</option>
-                                <option value="supervisor" <?php if($data['user']->role == 'supervisor') echo 'selected'; ?>>Supervisor (jefe de área)</option>
-                                <option value="admin" <?php if($data['user']->role == 'admin') echo 'selected'; ?>>Admin</option>
-                            </select>
-                        </div>
-                    </div>
+                    <?php require APPROOT . '/views/admin/partials/user_role_field.php'; ?>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label for="password" class="form-label">Nueva Contraseña</label>
@@ -203,12 +201,20 @@ $editCompanyLabel = !empty($data['current_company_name']) ? $data['current_compa
 
                     <?php
                     $source = isset($data['user']) ? $data['user'] : $data;
-                    if (!empty($data['probation_start_date']) || !empty($data['hire_date'])) {
-                        $source = (object)array_merge((array)$source, [
-                            'probation_start_date' => $data['probation_start_date'] ?? '',
-                            'hire_date' => $data['hire_date'] ?? '',
-                            'agreement_id' => $data['agreement_id'] ?? 0,
-                        ]);
+                    $employmentOverrides = [];
+                    if (array_key_exists('probation_start_date', $data)) {
+                        $employmentOverrides['probation_start_date'] = $data['probation_start_date'];
+                    }
+                    if (array_key_exists('hire_date', $data)) {
+                        $employmentOverrides['hire_date'] = $data['hire_date'];
+                    }
+                    if (array_key_exists('agreement_id', $data)) {
+                        $employmentOverrides['agreement_id'] = (int)$data['agreement_id'];
+                    } elseif (!empty($data['employee_record']['assignment']->agreement_id)) {
+                        $employmentOverrides['agreement_id'] = (int)$data['employee_record']['assignment']->agreement_id;
+                    }
+                    if (!empty($employmentOverrides)) {
+                        $source = (object)array_merge((array)$source, $employmentOverrides);
                     }
                     require APPROOT . '/views/admin/partials/user_employment_fields.php';
                     ?>

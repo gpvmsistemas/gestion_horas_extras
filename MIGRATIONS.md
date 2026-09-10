@@ -178,6 +178,65 @@ php scripts/process_hr_expirations.php
 
 Rollback: restaurar el dump previo. No se provee un SQL destructivo porque los dominios contienen constancias, custodias y auditoría que no deben perderse.
 
+## Licencias por convenio colectivo (2026-08)
+
+Archivo: `migration_collective_agreement_leave_types.sql`.
+
+Crea el catálogo `collective_agreement_leave_types`, vincula solicitudes mediante
+`requests.agreement_leave_type_id` y precarga licencias base LCT para los cinco convenios
+ya existentes (más extensiones SOECRA y Sanidad).
+
+Aplicación:
+
+```bash
+mysql -u USUARIO -p BASE_DE_DATOS < migration_collective_agreement_leave_types.sql
+```
+
+O en entornos que usan el consolidador:
+
+```bash
+php scripts/aplicar_pendientes_vps.php
+```
+
+O solo este módulo:
+
+```bash
+php scripts/apply_agreement_leave_types_migration.php
+```
+
+Verificación:
+
+```sql
+SELECT ca.code, COUNT(l.id) AS licencias
+FROM collective_agreements ca
+LEFT JOIN collective_agreement_leave_types l ON l.agreement_id = ca.id AND l.is_active = 1
+GROUP BY ca.id, ca.code
+ORDER BY ca.code;
+```
+
+Administración: `/vacationAdmin/agreements` y `/vacationAdmin/editAgreement/{id}`.
+El portal del empleado muestra las licencias del convenio efectivo en `/request/index`.
+
+## Dorso de certificado en solicitudes (2026-08)
+
+Archivo: `migration_request_certificate_back.sql`.
+
+Agrega `requests.certificate_back_path` para adjuntar frente y dorso del certificado médico.
+
+```bash
+php scripts/apply_request_certificate_back_migration.php
+```
+
+## Licencias solo aviso (sin aprobación RRHH) (2026-08)
+
+Archivo: `migration_leave_type_requires_approval.sql`.
+
+Agrega `collective_agreement_leave_types.requires_approval`. Las licencias con valor `0` (por defecto **Enfermedad**) se registran al enviar sin pasar por la bandeja de aprobación.
+
+```bash
+php scripts/apply_leave_type_requires_approval_migration.php
+```
+
 ## Catálogo ampliado de obras sociales y prepagas (2026-08)
 
 Archivo: `migration_health_insurers_catalog.sql`.
@@ -191,3 +250,18 @@ php scripts/apply_health_insurers_catalog.php
 ```
 
 Los nombres cargados son referencias comerciales. RR. HH. debe validar razón social, CUIT y código oficial antes de utilizarlos para derivación de aportes.
+
+## Web Push / PWA (2026-08)
+
+Archivo: `scripts/migration_push_subscriptions.sql`.
+
+Crea `push_subscriptions` para notificaciones push del portal empleado (PWA instalable).
+
+```bash
+php scripts/apply_push_subscriptions_migration.php
+php scripts/generate_vapid_keys.php
+```
+
+Copiar las claves VAPID generadas a `app/config/config.local.php`. Sin claves VAPID la PWA sigue siendo instalable, pero no se envían pushes.
+
+Tras el despliegue, cada empleado puede activar notificaciones desde el portal (banner en inicio). Los envíos administrativos (`notification_broadcasts`, recibos y cursos publicados) disparan push automáticamente si el empleado está suscripto.

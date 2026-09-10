@@ -177,6 +177,29 @@ class VacationBalance {
         return $this->db->execute();
     }
 
+    /**
+     * Corrige fechas / convenio / regla de un período ya existente (p. ej. re-liquidación).
+     */
+    public function updatePeriodLiquidationMeta($periodId, array $meta) {
+        $period = $this->getPeriodById($periodId);
+        if (!$period) {
+            return false;
+        }
+        $this->db->query('UPDATE vacation_balance_periods
+            SET period_start = :ps, period_end = :pe, agreement_id = :aid, agreement_rule_id = :rid,
+                count_mode_snapshot = :mode, liquidated_at = :liq_at, liquidated_by = :liq_by
+            WHERE id = :id');
+        $this->db->bind(':ps', $meta['period_start'] ?? $period->period_start);
+        $this->db->bind(':pe', $meta['period_end'] ?? $period->period_end);
+        $this->db->bind(':aid', (int)($meta['agreement_id'] ?? $period->agreement_id));
+        $this->db->bind(':rid', isset($meta['agreement_rule_id']) ? (int)$meta['agreement_rule_id'] : ($period->agreement_rule_id !== null ? (int)$period->agreement_rule_id : null));
+        $this->db->bind(':mode', $meta['count_mode_snapshot'] ?? $period->count_mode_snapshot);
+        $this->db->bind(':liq_at', $meta['liquidated_at'] ?? date('Y-m-d H:i:s'));
+        $this->db->bind(':liq_by', $meta['liquidated_by'] ?? null);
+        $this->db->bind(':id', (int)$periodId);
+        return $this->db->execute();
+    }
+
     public function addMovement(array $data) {
         $datesJson = null;
         if (isset($data['schedule_dates'])) {
@@ -257,6 +280,12 @@ class VacationBalance {
             $bind[':search_doc'] = $search;
             $bind[':search_cuil'] = $search;
         }
+        if (!empty($filters['no_agreement'])) {
+            $where[] = 'COALESCE(u.agreement_id,a.agreement_id,cad.agreement_id) IS NULL';
+        }
+        if (!empty($filters['no_hire'])) {
+            $where[] = 'u.hire_date IS NULL';
+        }
 
         $balanceConditions = ["vbp.status='open'", 'vbp.days_pending>0',
             "(vbp.balance_type<>'conventional_credit' OR vbp.expires_at IS NULL OR vbp.expires_at>=CURDATE())"];
@@ -276,10 +305,13 @@ class VacationBalance {
             $balanceConditions[] = 'vbp.expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)';
         }
         $balanceMatch = implode(' AND ', $balanceConditions);
-        if (($filters['balance_status'] ?? 'with') === 'with') {
+        if (($filters['balance_status'] ?? 'both') === 'with') {
             $having[] = 'total_pending > 0';
-        } elseif (($filters['balance_status'] ?? 'with') === 'without') {
+        } elseif (($filters['balance_status'] ?? 'both') === 'without') {
             $having[] = 'total_pending = 0';
+        }
+        if (!empty($filters['no_liquidation'])) {
+            $having[] = 'has_current_liquidation = 0';
         }
         if (($filters['min_days'] ?? '') !== '') {
             $having[] = 'total_pending >= :min_days';
@@ -290,19 +322,23 @@ class VacationBalance {
             $bind[':max_days'] = (float)$filters['max_days'];
         }
 
+        $currentPeriodLabel = preg_match('/^\d{4}(?:-\d{4})?$/', (string)($filters['current_period'] ?? ''))
+            ? (string)$filters['current_period']
+            : (string)date('Y');
+
         $select = "SELECT u.id AS user_id,u.full_name,u.document_number,u.hire_date,u.is_active,
             u.company_id,c.name AS company_name,u.area_id,a.name AS area_name,
             COALESCE(u.agreement_id,a.agreement_id,cad.agreement_id) AS effective_agreement_id,
             ca.code AS agreement_code,ca.name AS agreement_name,
             COALESCE(SUM(CASE WHEN $balanceMatch THEN vbp.days_pending ELSE 0 END),0) AS total_pending,
             COALESCE(SUM(CASE WHEN $balanceMatch AND (vbp.balance_type='historical' OR vbp.period_start < '" . date('Y-01-01') . "') THEN vbp.days_pending ELSE 0 END),0) AS historical_pending,
-            COALESCE(SUM(CASE WHEN $balanceMatch AND vbp.balance_type='annual' AND vbp.period_label='" . date('Y') . "' THEN vbp.days_pending ELSE 0 END),0) AS current_pending,
+            COALESCE(SUM(CASE WHEN $balanceMatch AND vbp.balance_type='annual' AND vbp.period_label=:current_period_lbl THEN vbp.days_pending ELSE 0 END),0) AS current_pending,
             MIN(CASE WHEN $balanceMatch THEN vbp.period_start END) AS oldest_period,
             MIN(CASE WHEN $balanceMatch THEN vbp.expires_at END) AS next_expiry,
             MAX(CASE WHEN vbp.balance_type='conventional_credit' AND vbp.status='open'
                 AND vbp.days_pending>0 AND vbp.expires_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 90 DAY)
                 THEN 1 ELSE 0 END) AS has_expiring_credit,
-            MAX(CASE WHEN vbp.balance_type='annual' AND vbp.period_label='" . date('Y') . "' THEN 1 ELSE 0 END) AS has_current_liquidation
+            MAX(CASE WHEN vbp.balance_type='annual' AND vbp.period_label=:current_period_lbl2 THEN 1 ELSE 0 END) AS has_current_liquidation
             FROM users u JOIN companies c ON c.id=u.company_id
             LEFT JOIN areas a ON a.id=u.area_id
             LEFT JOIN company_agreement_defaults cad ON cad.company_id=u.company_id
@@ -326,6 +362,8 @@ class VacationBalance {
         if (empty($filters['export'])) {
             $select .= ' LIMIT ' . $perPage . ' OFFSET ' . (($page - 1) * $perPage);
         }
+        $bind[':current_period_lbl'] = $currentPeriodLabel;
+        $bind[':current_period_lbl2'] = $currentPeriodLabel;
         $this->db->query($select);
         foreach ($bind as $key=>$value) {
             $this->db->bind($key, $value);

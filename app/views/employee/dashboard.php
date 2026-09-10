@@ -368,7 +368,7 @@ $highlightId = !empty($data['overtime_feedback']['saved']['id']) ? (int)$data['o
 
 
 
-<div style="height:80px" class="d-lg-none"></div>
+<div class="emp-page-bottom-spacer d-lg-none" aria-hidden="true"></div>
 
 
 

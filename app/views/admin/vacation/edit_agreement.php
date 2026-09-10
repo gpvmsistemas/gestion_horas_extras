@@ -10,7 +10,7 @@ $id = $isNew ? 0 : (int)$ag->id;
         <div class="admin-page-icon"><i class="fas fa-file-contract"></i></div>
         <div class="admin-page-meta">
             <h2 class="page-title mb-0"><?php echo $isNew ? 'Nuevo convenio' : 'Editar convenio'; ?></h2>
-            <p class="page-subtitle mb-0">Datos del convenio y reglas de días por antigüedad.</p>
+            <p class="page-subtitle mb-0">Datos del convenio, reglas de vacaciones y licencias convencionales.</p>
         </div>
     </div>
     <a href="<?php echo URLROOT; ?>/vacationAdmin/agreements" class="btn btn-outline-secondary btn-sm">Volver al listado</a>
@@ -160,5 +160,225 @@ $id = $isNew ? 0 : (int)$ag->id;
     </div>
     <?php endif; ?>
 </div>
+
+<?php if (!$isNew && !empty($data['leave_types_ready'])): ?>
+<div class="row g-3 mt-1">
+    <div class="col-12">
+        <div class="card border shadow-sm mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <strong><i class="fas fa-file-medical me-1"></i>Licencias del convenio</strong>
+                <span class="small text-muted">Catálogo que verá el empleado según su encuadramiento.</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Código</th>
+                            <th>Nombre</th>
+                            <th>Categoría</th>
+                            <th>Condiciones</th>
+                            <th>Referencia</th>
+                            <th>Estado</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php if (empty($data['leave_types'])): ?>
+                    <tr><td colspan="7" class="text-muted text-center py-3">Sin licencias. Agregá la primera abajo o ejecutá la migración con catálogo precargado.</td></tr>
+                    <?php else: foreach ($data['leave_types'] as $leave): ?>
+                    <tr class="<?php echo empty($leave->is_active) ? 'table-secondary' : ''; ?>">
+                        <td><code><?php echo htmlspecialchars($leave->code); ?></code></td>
+                        <td>
+                            <strong><?php echo htmlspecialchars($leave->name); ?></strong>
+                            <?php if (!empty($leave->description)): ?>
+                            <div class="small text-muted"><?php echo htmlspecialchars($leave->description); ?></div>
+                            <?php endif; ?>
+                        </td>
+                        <td class="small"><?php echo htmlspecialchars($data['leave_categories'][$leave->category] ?? $leave->category); ?></td>
+                        <td class="small"><?php echo htmlspecialchars(agreement_leave_type_badge($leave)); ?></td>
+                        <td class="small"><?php echo htmlspecialchars($leave->legal_reference ?? ''); ?></td>
+                        <td><?php echo !empty($leave->is_active) ? '<span class="badge bg-success">Activa</span>' : '<span class="badge bg-secondary">Inactiva</span>'; ?></td>
+                        <td class="text-end text-nowrap">
+                            <button type="button" class="btn btn-outline-secondary btn-sm js-edit-leave-type"
+                                    data-leave='<?php echo htmlspecialchars(json_encode([
+                                        'id' => (int)$leave->id,
+                                        'code' => $leave->code,
+                                        'name' => $leave->name,
+                                        'description' => $leave->description ?? '',
+                                        'legal_reference' => $leave->legal_reference ?? '',
+                                        'category' => $leave->category,
+                                        'is_paid' => (int)!empty($leave->is_paid),
+                                        'requires_certificate' => (int)!empty($leave->requires_certificate),
+                                        'requires_approval' => (int)(!isset($leave->requires_approval) || !empty($leave->requires_approval)),
+                                        'max_days_per_event' => $leave->max_days_per_event,
+                                        'max_days_per_year' => $leave->max_days_per_year,
+                                        'min_notice_days' => $leave->min_notice_days,
+                                        'day_count_mode' => $leave->day_count_mode,
+                                        'sort_order' => (int)$leave->sort_order,
+                                        'is_active' => (int)!empty($leave->is_active),
+                                        'notes' => $leave->notes ?? '',
+                                    ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>'
+                                    title="Editar"><i class="fas fa-pen"></i></button>
+                            <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/deleteAgreementLeaveType/<?php echo $id; ?>/<?php echo (int)$leave->id; ?>" class="d-inline" onsubmit="return confirm('¿Eliminar esta licencia del convenio?');">
+                                <?php echo csrf_field(); ?>
+                                <button type="submit" class="btn btn-outline-danger btn-sm" title="Eliminar"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card border shadow-sm">
+            <div class="card-header"><strong id="leaveFormTitle">Agregar licencia</strong></div>
+            <div class="card-body">
+                <form method="post" action="<?php echo URLROOT; ?>/vacationAdmin/saveAgreementLeaveType/<?php echo $id; ?>" id="agreementLeaveForm">
+                    <?php echo csrf_field(); ?>
+                    <input type="hidden" name="id" id="leaveFormId" value="0">
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <label class="form-label small">Código</label>
+                            <input type="text" name="code" id="leaveFormCode" class="form-control form-control-sm" maxlength="40" required placeholder="ENFERMEDAD">
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small">Nombre</label>
+                            <input type="text" name="name" id="leaveFormName" class="form-control form-control-sm" required placeholder="Enfermedad">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Categoría</label>
+                            <select name="category" id="leaveFormCategory" class="form-select form-select-sm">
+                                <?php foreach ($data['leave_categories'] as $key => $label): ?>
+                                <option value="<?php echo htmlspecialchars($key); ?>"><?php echo htmlspecialchars($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Descripción</label>
+                            <input type="text" name="description" id="leaveFormDescription" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small">Referencia legal</label>
+                            <input type="text" name="legal_reference" id="leaveFormLegalRef" class="form-control form-control-sm" placeholder="LCT art. 158 / CCT art. X">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Máx. por evento</label>
+                            <input type="number" step="0.5" min="0" name="max_days_per_event" id="leaveFormMaxEvent" class="form-control form-control-sm" placeholder="Ej. 3">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Máx. por año</label>
+                            <input type="number" step="0.5" min="0" name="max_days_per_year" id="leaveFormMaxYear" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Aviso previo (días)</label>
+                            <input type="number" min="0" name="min_notice_days" id="leaveFormMinNotice" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Orden</label>
+                            <input type="number" name="sort_order" id="leaveFormSort" class="form-control form-control-sm" value="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small">Conteo de días</label>
+                            <select name="day_count_mode" id="leaveFormDayMode" class="form-select form-select-sm">
+                                <?php foreach ($data['day_count_modes'] as $k => $lbl): ?>
+                                <option value="<?php echo htmlspecialchars($k); ?>"><?php echo htmlspecialchars($lbl); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-8 d-flex align-items-end gap-3 flex-wrap">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="is_paid" value="1" id="leavePaid" checked>
+                                <label class="form-check-label small" for="leavePaid">Con goce de sueldo</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="requires_certificate" value="1" id="leaveCert">
+                                <label class="form-check-label small" for="leaveCert">Requiere certificado</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="requires_approval" value="1" id="leaveApproval" checked>
+                                <label class="form-check-label small" for="leaveApproval">Requiere aprobación RRHH</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="is_active" value="1" id="leaveActive" checked>
+                                <label class="form-check-label small" for="leaveActive">Activa</label>
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Notas internas</label>
+                            <input type="text" name="notes" id="leaveFormNotes" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-12 d-flex gap-2 flex-wrap">
+                            <button type="submit" class="btn btn-outline-primary btn-sm" id="leaveFormSubmit">Guardar licencia</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="leaveFormReset" hidden>Nueva licencia</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<?php elseif (!$isNew && empty($data['leave_types_ready'])): ?>
+<div class="alert alert-warning small mt-3">
+    Para administrar licencias por convenio ejecutá <code>migration_collective_agreement_leave_types.sql</code>.
+</div>
+<?php endif; ?>
+
+<script>
+(function () {
+    var form = document.getElementById('agreementLeaveForm');
+    if (!form) return;
+    var title = document.getElementById('leaveFormTitle');
+    var resetBtn = document.getElementById('leaveFormReset');
+    function setField(id, value) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.value = value == null ? '' : value;
+    }
+    function setCheck(id, checked) {
+        var el = document.getElementById(id);
+        if (el) el.checked = !!checked;
+    }
+    function resetLeaveForm() {
+        setField('leaveFormId', '0');
+        ['leaveFormCode','leaveFormName','leaveFormDescription','leaveFormLegalRef','leaveFormMaxEvent','leaveFormMaxYear','leaveFormMinNotice','leaveFormNotes'].forEach(function (id) { setField(id, ''); });
+        setField('leaveFormSort', '0');
+        setField('leaveFormCategory', 'other');
+        setField('leaveFormDayMode', 'calendar');
+        setCheck('leavePaid', true);
+        setCheck('leaveCert', false);
+        setCheck('leaveApproval', true);
+        setCheck('leaveActive', true);
+        if (title) title.textContent = 'Agregar licencia';
+        if (resetBtn) resetBtn.hidden = true;
+    }
+    document.querySelectorAll('.js-edit-leave-type').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var data = {};
+            try { data = JSON.parse(btn.getAttribute('data-leave') || '{}'); } catch (e) { return; }
+            setField('leaveFormId', data.id || 0);
+            setField('leaveFormCode', data.code || '');
+            setField('leaveFormName', data.name || '');
+            setField('leaveFormDescription', data.description || '');
+            setField('leaveFormLegalRef', data.legal_reference || '');
+            setField('leaveFormCategory', data.category || 'other');
+            setField('leaveFormMaxEvent', data.max_days_per_event ?? '');
+            setField('leaveFormMaxYear', data.max_days_per_year ?? '');
+            setField('leaveFormMinNotice', data.min_notice_days ?? '');
+            setField('leaveFormSort', data.sort_order || 0);
+            setField('leaveFormDayMode', data.day_count_mode || 'calendar');
+            setField('leaveFormNotes', data.notes || '');
+            setCheck('leavePaid', data.is_paid);
+            setCheck('leaveCert', data.requires_certificate);
+            setCheck('leaveApproval', data.requires_approval !== 0);
+            setCheck('leaveActive', data.is_active);
+            if (title) title.textContent = 'Editar licencia';
+            if (resetBtn) resetBtn.hidden = false;
+            form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
+    resetBtn?.addEventListener('click', resetLeaveForm);
+})();
+</script>
 
 <?php require APPROOT . '/views/inc/footer.php'; ?>

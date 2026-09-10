@@ -150,17 +150,26 @@ foreach ($_pageTitles as $_titlePath => $_titleLabel) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?php echo htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
+    <?php if (isLoggedIn()): ?>
+    <link rel="manifest" href="<?php echo URLROOT; ?>/manifest.php">
+    <meta name="theme-color" content="<?php echo htmlspecialchars(function_exists('company_brand_color') ? company_brand_color() : '#1e3a5f', ENT_QUOTES, 'UTF-8'); ?>">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RRHH">
+    <link rel="apple-touch-icon" href="<?php echo function_exists('pwa_icon_url') ? pwa_icon_url(192) : URLROOT . '/img/pym.png'; ?>">
+    <?php endif; ?>
     <title><?php echo htmlspecialchars($_pageTitle, ENT_QUOTES, 'UTF-8'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="<?php echo URLROOT; ?>/css/style.css">
+    <link rel="stylesheet" href="<?php echo URLROOT; ?>/css/style.css?v=<?php echo (int)@filemtime(APPROOT . '/../public/css/style.css'); ?>">
     <?php if ($_brandCssVariables !== ''): ?><style>:root{<?php echo htmlspecialchars($_brandCssVariables, ENT_QUOTES, 'UTF-8'); ?>}</style><?php endif; ?>
     <?php if (isLoggedIn() && function_exists('notifications_is_ready') && notifications_is_ready()): ?>
     <link rel="stylesheet" href="<?php echo URLROOT; ?>/css/notifications.css">
-    <meta name="csrf-token" content="<?php echo htmlspecialchars(csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
     <?php endif; ?>
 </head>
 <body class="<?php
@@ -275,12 +284,16 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
                class="sidebar-nav-link <?php echo navIsActive('/admin/users', '/admin/createUser', '/admin/editUser'); ?>">
                 <i class="fas fa-fw fa-users"></i><span>Usuarios</span>
             </a>
+            <a href="<?php echo URLROOT; ?>/vacationAdmin/panel"
+               class="sidebar-nav-link <?php echo navIsActive('/vacationAdmin/panel', '/vacationAdmin/liquidateCompanyBatch'); ?>">
+                <i class="fas fa-fw fa-umbrella-beach"></i><span>Vacaciones</span>
+            </a>
             <a href="<?php echo URLROOT; ?>/vacationAdmin/agreements"
                class="sidebar-nav-link <?php echo navIsActive('/vacationAdmin/agreements', '/vacationAdmin/editAgreement'); ?>">
-                <i class="fas fa-fw fa-umbrella-beach"></i><span>Convenios / Vacaciones</span>
+                <i class="fas fa-fw fa-file-contract"></i><span>Convenios</span>
             </a>
             <a href="<?php echo URLROOT; ?>/vacationAdmin/reports"
-               class="sidebar-nav-link <?php echo navIsActive('/vacationAdmin/reports'); ?>">
+               class="sidebar-nav-link <?php echo navIsActive('/vacationAdmin/reports', '/vacationAdmin/tomadas'); ?>">
                 <i class="fas fa-fw fa-chart-pie"></i><span>Reportes vacaciones</span>
             </a>
             <a href="<?php echo URLROOT; ?>/admin/weeklyPlanner"
@@ -754,6 +767,9 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
             <?php if (hasRole('empleado') && function_exists('notifications_is_ready') && notifications_is_ready()): ?>
             <?php require APPROOT . '/views/inc/partials/employee_notify_dropdown.php'; ?>
             <?php endif; ?>
+            <?php if (function_exists('pwa_install_ui_enabled') && pwa_install_ui_enabled()): ?>
+            <?php require APPROOT . '/views/inc/partials/pwa_topbar_install.php'; ?>
+            <?php endif; ?>
             <div class="topbar-user">
                 <?php if (hasRole('empleado')): ?>
                 <a href="<?php echo URLROOT; ?>/employee/profile" class="topbar-avatar-shell text-decoration-none" title="Mi perfil">
@@ -809,6 +825,22 @@ echo htmlspecialchars(implode(' ', $_bodyClasses), ENT_QUOTES, 'UTF-8');
     <?php endif; ?>
 
     <main class="page-content">
+<?php if (function_exists('pwa_install_ui_enabled') && pwa_install_ui_enabled()): ?>
+    <?php require APPROOT . '/views/inc/partials/pwa_install_banner.php'; ?>
+<?php endif; ?>
+<?php if (isLoggedIn() && hasRole('empleado')): ?>
+    <?php require APPROOT . '/views/inc/partials/pwa_push_banner.php'; ?>
+<?php endif; ?>
+<script>
+(function () {
+    var standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.matchMedia('(display-mode: fullscreen)').matches
+        || window.navigator.standalone === true;
+    if (standalone) {
+        document.documentElement.classList.add('pwa-is-installed');
+    }
+})();
+</script>
 
 <?php else: ?>
 <main class="login-wrapper">

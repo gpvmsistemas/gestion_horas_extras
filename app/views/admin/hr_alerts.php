@@ -22,8 +22,8 @@ $stats = $data['attendance_stats'] ?? null;
 <?php if (!empty($data['october_liquidation_reminder'])): ?>
 <div class="alert alert-info">
     <i class="fas fa-umbrella-beach me-1"></i>
-    <strong>Octubre:</strong> recordá liquidar el período de vacaciones Oct–Sep para el nuevo ciclo.
-    <a href="<?php echo URLROOT; ?>/vacationAdmin/liquidateCompanyBatch" class="alert-link">Liquidación masiva</a>
+    <strong>Octubre–diciembre:</strong> podés abrir las vacaciones del <strong>año siguiente</strong> (calendario 1 ene–31 dic) según cada convenio.
+    <a href="<?php echo URLROOT; ?>/vacationAdmin/panel?period=<?php echo urlencode((string)((int)date('Y') + 1)); ?>" class="alert-link">Panel de vacaciones</a>
 </div>
 <?php endif; ?>
 
@@ -110,7 +110,8 @@ $stats = $data['attendance_stats'] ?? null;
                 <p class="mb-1"><strong>Sin fecha de ingreso:</strong> <?php echo count($va['no_hire_date']); ?></p>
                 <p class="mb-1"><strong>Sin convenio:</strong> <?php echo count($va['no_agreement']); ?></p>
                 <p class="mb-2"><strong>Saldo bajo (&lt;3 días):</strong> <?php echo count($va['low_balance']); ?></p>
-                <a href="<?php echo URLROOT; ?>/vacationAdmin/reports">Reportes de vacaciones</a>
+                <a href="<?php echo URLROOT; ?>/vacationAdmin/panel">Panel de vacaciones</a>
+                · <a href="<?php echo URLROOT; ?>/vacationAdmin/reports">Saldos</a>
                 <?php endif; ?>
             </div>
         </div>

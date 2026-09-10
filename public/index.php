@@ -1,4 +1,14 @@
 <?php
+$host = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+if (strpos($host, ':') !== false) {
+    $host = explode(':', $host, 2)[0];
+}
+if ($host === 'www.rrhhpym.com') {
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+    header('Location: https://rrhhpym.com' . $uri, true, 301);
+    exit;
+}
+
 $appPublic = __DIR__;
 $pathInfo = (string)($_SERVER['PATH_INFO'] ?? '');
 if ($pathInfo === '') {

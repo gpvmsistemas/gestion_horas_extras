@@ -34,7 +34,7 @@
     </form>
 </div>
 
-<div style="height:80px" class="d-lg-none"></div>
+<div class="emp-page-bottom-spacer d-lg-none" aria-hidden="true"></div>
 
 <?php require APPROOT . '/views/inc/footer.php'; ?>
 

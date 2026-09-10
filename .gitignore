@@ -1,5 +1,6 @@
 # === Dependencias ===
 /vendor/
+composer.phar
 
 # === Configuración local con credenciales (NO versionar) ===
 app/config/config.local.php

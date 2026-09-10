@@ -137,6 +137,31 @@ function uploads_flat_mimes(array $groups) {
     return array_values(array_unique($flat));
 }
 
+function uploads_store_request_certificate($requestId, $fileKey = 'certificate', $nameSuffix = '') {
+    $requestId = (int)$requestId;
+    if ($requestId <= 0 || empty($_FILES[$fileKey]['name']) || $_FILES[$fileKey]['error'] !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'filename' => null, 'message' => ''];
+    }
+    $nameSuffix = preg_replace('/[^a-z0-9_-]/i', '', (string)$nameSuffix);
+    $docMimes = uploads_document_mimes();
+    $valid = uploads_validate_uploaded_file(
+        $_FILES[$fileKey],
+        array_keys($docMimes),
+        uploads_flat_mimes($docMimes),
+        10 * 1024 * 1024
+    );
+    if (!$valid['ok']) {
+        return ['ok' => false, 'filename' => null, 'message' => $valid['message']];
+    }
+    uploads_ensure_private_directory('request_certificates');
+    $dir = APPROOT . '/../public/uploads/request_certificates/';
+    $filename = 'req_' . $requestId . ($nameSuffix !== '' ? $nameSuffix : '') . '_' . time() . '.' . $valid['ext'];
+    if (!move_uploaded_file($_FILES[$fileKey]['tmp_name'], $dir . $filename)) {
+        return ['ok' => false, 'filename' => null, 'message' => 'No se pudo guardar el certificado.'];
+    }
+    return ['ok' => true, 'filename' => $filename, 'message' => ''];
+}
+
 function admin_justification_stream_url($userId, $workDate) {
     return URLROOT . '/admin/streamJustification/' . (int)$userId . '/' . rawurlencode((string)$workDate);
 }
@@ -145,8 +170,21 @@ function admin_request_certificate_stream_url($requestId) {
     return URLROOT . '/admin/streamRequestCertificate/' . (int)$requestId;
 }
 
+function upload_filename_is_image($filename) {
+    $ext = strtolower(pathinfo((string)$filename, PATHINFO_EXTENSION));
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+}
+
 function request_certificate_stream_url($requestId) {
     return URLROOT . '/request/streamCertificate/' . (int)$requestId;
+}
+
+function request_certificate_back_stream_url($requestId) {
+    return URLROOT . '/request/streamCertificateBack/' . (int)$requestId;
+}
+
+function admin_request_certificate_back_stream_url($requestId) {
+    return URLROOT . '/admin/streamRequestCertificateBack/' . (int)$requestId;
 }
 
 function learning_resource_stream_url($resourceId, $forAdmin = false) {

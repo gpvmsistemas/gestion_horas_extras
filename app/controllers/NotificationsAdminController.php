@@ -275,14 +275,19 @@ class NotificationsAdminController {
         $link = URLROOT . '/employee/payStubSign/' . $stubId;
         $notif = new UserNotification();
         if (!$notif->existsForUser($userId, 'pay_stub', $stubId)) {
+            $pushTitle = notification_apply_placeholders($titleTpl, $userId);
+            $pushBody = notification_apply_placeholders($bodyTpl, $userId);
             $notif->create([
                 'user_id' => $userId,
-                'title' => notification_apply_placeholders($titleTpl, $userId),
-                'body' => notification_apply_placeholders($bodyTpl, $userId),
+                'title' => $pushTitle,
+                'body' => $pushBody,
                 'link_url' => $link,
                 'type' => 'pay_stub',
                 'reference_id' => $stubId,
             ]);
+            if (function_exists('push_notify_user')) {
+                push_notify_user($userId, $pushTitle, $pushBody, $link);
+            }
         }
         if ($sendEmail) {
             $subject = notification_apply_placeholders($titleTpl, $userId);

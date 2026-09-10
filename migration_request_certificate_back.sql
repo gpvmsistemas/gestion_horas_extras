@@ -1,0 +1,2 @@
+-- Dorso del certificado médico en solicitudes de licencia.
+-- La columna se aplica de forma idempotente desde scripts/apply_request_certificate_back_migration.php

@@ -60,6 +60,13 @@ if (is_object($src)) {
     $hire = $src['hire_date'] ?? '';
     $agreementId = (int)($src['agreement_id'] ?? 0);
 }
+if ($agreementId <= 0 && isset($data) && is_array($data)) {
+    if (!empty($data['agreement_id'])) {
+        $agreementId = (int)$data['agreement_id'];
+    } elseif (!empty($data['employee_record']['assignment']->agreement_id)) {
+        $agreementId = (int)$data['employee_record']['assignment']->agreement_id;
+    }
+}
 $uid = (int)($user_id ?? ($src->id ?? 0));
 ?>
 

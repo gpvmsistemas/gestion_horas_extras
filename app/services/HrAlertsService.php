@@ -49,7 +49,7 @@ class HrAlertsService {
 
         $vacationAlerts = $this->entitlement->getCompanyVacationAlerts($companyId);
 
-        $octoberReminder = ((int)date('n') === 10);
+        $octoberReminder = ((int)date('n') >= 10);
 
         return [
             'work_date' => $workDate,

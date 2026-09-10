@@ -27,6 +27,9 @@ class VacationAdminController {
         $agreements = $this->agreementModel->getAll(false);
         foreach ($agreements as $ag) {
             $ag->rules = $this->agreementModel->getRules((int)$ag->id);
+            $ag->leave_types = $this->agreementModel->leaveTypesReady()
+                ? $this->agreementModel->getLeaveTypes((int)$ag->id, false)
+                : [];
         }
         $companyId = requireAdminCompany('admin/dashboard');
         $companies = $this->companyModel->getAllCompanies();
@@ -40,6 +43,8 @@ class VacationAdminController {
             'companies' => $companies,
             'defaults' => $defaults,
             'company_id' => $companyId,
+            'leave_types_ready' => $this->agreementModel->leaveTypesReady(),
+            'leave_categories' => agreement_leave_categories(),
         ]);
     }
 
@@ -67,10 +72,16 @@ class VacationAdminController {
         $id = (int)$id;
         $agreement = $id > 0 ? $this->agreementModel->getById($id) : null;
         $rules = $id > 0 ? $this->agreementModel->getRules($id) : [];
+        $leaveTypes = ($id > 0 && $this->agreementModel->leaveTypesReady())
+            ? $this->agreementModel->getLeaveTypes($id, false)
+            : [];
         $this->view('admin/vacation/edit_agreement', [
             'agreement' => $agreement,
             'rules' => $rules,
+            'leave_types' => $leaveTypes,
             'day_count_modes' => vacation_day_count_modes(),
+            'leave_categories' => agreement_leave_categories(),
+            'leave_types_ready' => $this->agreementModel->leaveTypesReady(),
             'is_new' => $id <= 0,
         ]);
     }
@@ -132,6 +143,65 @@ class VacationAdminController {
             'notes' => trim($_POST['notes'] ?? ''),
         ]);
         $_SESSION['flash_success'] = 'Regla agregada.';
+        redirect('vacationAdmin/editAgreement/' . $agreementId);
+    }
+
+    public function saveAgreementLeaveType($agreementId) {
+        $agreementId = (int)$agreementId;
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $agreementId <= 0) {
+            redirect('vacationAdmin/agreements');
+        }
+        csrf_verify();
+        if (!$this->agreementModel->leaveTypesReady()) {
+            $_SESSION['flash_error'] = 'Ejecutá migration_collective_agreement_leave_types.sql.';
+            redirect('vacationAdmin/editAgreement/' . $agreementId);
+        }
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        $name = trim($_POST['name'] ?? '');
+        if ($code === '' || $name === '') {
+            $_SESSION['flash_error'] = 'Código y nombre de la licencia son obligatorios.';
+            redirect('vacationAdmin/editAgreement/' . $agreementId);
+        }
+        $category = trim($_POST['category'] ?? 'other');
+        if (!array_key_exists($category, agreement_leave_categories())) {
+            $category = 'other';
+        }
+        $ok = $this->agreementModel->saveLeaveType([
+            'id' => (int)($_POST['id'] ?? 0) ?: null,
+            'agreement_id' => $agreementId,
+            'code' => $code,
+            'name' => $name,
+            'description' => trim($_POST['description'] ?? ''),
+            'legal_reference' => trim($_POST['legal_reference'] ?? ''),
+            'category' => $category,
+            'is_paid' => !empty($_POST['is_paid']),
+            'requires_certificate' => !empty($_POST['requires_certificate']),
+            'requires_approval' => !empty($_POST['requires_approval']),
+            'max_days_per_year' => $_POST['max_days_per_year'] ?? '',
+            'max_days_per_event' => $_POST['max_days_per_event'] ?? '',
+            'min_notice_days' => $_POST['min_notice_days'] ?? '',
+            'day_count_mode' => $_POST['day_count_mode'] ?? 'calendar',
+            'sort_order' => (int)($_POST['sort_order'] ?? 0),
+            'is_active' => !empty($_POST['is_active']),
+            'notes' => trim($_POST['notes'] ?? ''),
+        ]);
+        $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $ok
+            ? 'Licencia del convenio guardada.'
+            : 'No se pudo guardar la licencia (¿código duplicado?).';
+        redirect('vacationAdmin/editAgreement/' . $agreementId);
+    }
+
+    public function deleteAgreementLeaveType($agreementId, $leaveTypeId = 0) {
+        $agreementId = (int)$agreementId;
+        $leaveTypeId = (int)$leaveTypeId;
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $agreementId <= 0 || $leaveTypeId <= 0) {
+            redirect('vacationAdmin/agreements');
+        }
+        csrf_verify();
+        $ok = $this->agreementModel->deleteLeaveType($agreementId, $leaveTypeId);
+        $_SESSION[$ok ? 'flash_success' : 'flash_error'] = $ok
+            ? 'Licencia eliminada del convenio.'
+            : 'No se pudo eliminar la licencia.';
         redirect('vacationAdmin/editAgreement/' . $agreementId);
     }
 
@@ -288,45 +358,70 @@ class VacationAdminController {
         redirect('vacationAdmin/vacationSetup/' . $userId);
     }
 
-    public function liquidateCompanyBatch() {
+    /**
+     * Hub operativo: preview por período + liquidación masiva / abrir año siguiente.
+     */
+    public function panel() {
         if (!$this->balanceModel->isReady()) {
             $_SESSION['flash_error'] = 'Ejecutá migration_collective_agreements.sql.';
             redirect('vacationAdmin/agreements');
         }
-
         $companyId = requireAdminCompany('admin/dashboard');
-        $companyName = $this->companyModel->getNameById($companyId);
-        $bounds = null;
-        $employees = $this->userModel->getActiveEmployeesForVacationLiquidation($companyId);
-        if (!empty($employees)) {
-            $first = $employees[0];
-            $bounds = $this->entitlement->getPeriodBoundsForDate((int)$first->id);
+        $periodOptions = vacation_target_period_options();
+        $period = trim($_GET['period'] ?? $_POST['period_label'] ?? '');
+        if ($period === '' || vacation_period_year_from_label($period) <= 0) {
+            $period = vacation_default_target_period_label();
         }
-        $suggestedPeriod = $bounds['period_label'] ?? date('Y');
+        if (!in_array($period, $periodOptions, true)) {
+            $periodOptions[] = $period;
+            sort($periodOptions);
+        }
+        $filter = trim($_GET['filter'] ?? 'all');
+        if (!in_array($filter, ['all', 'ready', 'blocked', 'liquidated'], true)) {
+            $filter = 'all';
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             csrf_verify();
-            $periodLabel = trim($_POST['period_label'] ?? '');
+            $periodLabel = trim($_POST['period_label'] ?? $period);
+            if (vacation_period_year_from_label($periodLabel) <= 0) {
+                $periodLabel = $period;
+            }
+            $onlyMissing = !isset($_POST['only_missing']) || (string)$_POST['only_missing'] === '1';
             $result = $this->entitlement->liquidateCompanyBatch(
                 $companyId,
-                $periodLabel !== '' ? $periodLabel : null,
-                (int)$_SESSION['user_id']
+                $periodLabel,
+                (int)$_SESSION['user_id'],
+                $onlyMissing
             );
             $_SESSION[$result['ok'] ? 'flash_success' : 'flash_error'] = $result['message'];
             $_SESSION['vacation_batch_report'] = $result;
-            redirect('vacationAdmin/liquidateCompanyBatch?company_id=' . $companyId);
+            redirect('vacationAdmin/panel?period=' . urlencode($periodLabel) . '&filter=' . urlencode($filter));
         }
 
         $report = $_SESSION['vacation_batch_report'] ?? null;
         unset($_SESSION['vacation_batch_report']);
+        $preview = $this->entitlement->previewCompanyPeriod($companyId, $period);
 
-        $this->view('admin/vacation/liquidate_batch', [
+        $this->view('admin/vacation/panel', [
             'company_id' => $companyId,
-            'company_name' => $companyName,
-            'suggested_period' => $suggestedPeriod,
-            'preview' => $this->entitlement->getBatchLiquidationPreview($companyId),
+            'company_name' => $this->companyModel->getNameById($companyId),
+            'period_label' => $preview['period_label'] ?? $period,
+            'period_options' => $periodOptions,
+            'filter' => $filter,
+            'preview' => $preview,
             'report' => $report,
         ]);
+    }
+
+    /** Compatibilidad: la liquidación masiva vive en el hub. */
+    public function liquidateCompanyBatch() {
+        $period = trim($_GET['period'] ?? $_GET['period_label'] ?? '');
+        if ($period === '') {
+            $period = vacation_default_target_period_label();
+        }
+        // La empresa la define la sesión admin; no aceptar company_id engañoso por URL.
+        redirect('vacationAdmin/panel?period=' . urlencode($period));
     }
 
     public function liquidateUser($userId) {
@@ -343,7 +438,37 @@ class VacationAdminController {
             (int)$_SESSION['user_id']
         );
         $_SESSION[$result['ok'] ? 'flash_success' : 'flash_error'] = $result['message'];
-        redirect('admin/employeeProfile/' . $userId . '#tab-vacation');
+        if (trim($_POST['return_to'] ?? '') === 'panel') {
+            $p = trim($_POST['return_period'] ?? $periodLabel);
+            if ($p === '') {
+                $p = vacation_default_target_period_label();
+            }
+            redirect('vacationAdmin/panel?period=' . urlencode($p));
+        }
+        $back = $this->reportsReturnPath();
+        redirect($back !== '' ? $back : ('admin/employeeProfile/' . $userId . '#tab-vacation'));
+    }
+
+    public function planilla($userId) {
+        $user = adminResolveUser((int)$userId);
+        if (!vacation_module_ready()) {
+            $_SESSION['flash_error'] = 'Módulo de vacaciones no instalado.';
+            redirect('vacationAdmin/vacationSetup/' . (int)$user->id);
+        }
+        $request = null;
+        $requestId = (int)($_GET['request_id'] ?? 0);
+        if ($requestId > 0) {
+            $request = (new Request())->getRequestById($requestId);
+            if (!$request || (int)$request->user_id !== (int)$user->id || !vacation_is_vacation_request($request)) {
+                $_SESSION['flash_error'] = 'Solicitud de vacaciones no encontrada.';
+                redirect('vacationAdmin/vacationSetup/' . (int)$user->id);
+            }
+        }
+        $asPdf = isset($_GET['format']) && $_GET['format'] === 'pdf';
+        if (!vacation_planilla_render((int)$user->id, $request, $asPdf)) {
+            $_SESSION['flash_error'] = 'No se pudo generar la planilla.';
+            redirect('vacationAdmin/vacationSetup/' . (int)$user->id);
+        }
     }
 
     /**
@@ -428,14 +553,29 @@ class VacationAdminController {
         $statsFilters = $filters;
         $statsFilters['export'] = true;
         $statsFilters['balance_status'] = 'both';
+        $statsFilters['no_agreement'] = false;
+        $statsFilters['no_liquidation'] = false;
+        $statsFilters['no_hire'] = false;
+        $statsFilters['historical_only'] = false;
+        $statsFilters['expiring_only'] = false;
+        $statsFilters['min_days'] = '';
+        $statsFilters['max_days'] = '';
         $stats = $this->buildVacationStats($this->balanceModel->getPendingReport($statsFilters)['rows']);
+        $companies = $this->companyModel->getAllCompanies();
+        $orgIds = $filters['company_ids'] ?? [];
+        if (!empty($orgIds)) {
+            $companies = array_values(array_filter($companies, static function ($co) use ($orgIds) {
+                return in_array((int)$co->id, $orgIds, true);
+            }));
+        }
         $this->view('admin/vacation/reports', [
             'filters' => $filters,
             'report' => $report,
             'stats' => $stats,
-            'companies' => $this->companyModel->getAllCompanies(),
+            'companies' => $companies,
             'agreements' => $this->agreementModel->getAll(),
             'areas' => (new Area())->getAll(),
+            'current_period' => (string)date('Y'),
         ]);
     }
 
@@ -451,8 +591,9 @@ class VacationAdminController {
         header('Content-Disposition: attachment; filename="vacaciones_saldos_' . date('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-        fputcsv($out, ['Empleado', 'Documento', 'Empresa', 'Area', 'Convenio', 'Pendiente total',
-            'Historico', 'Periodo actual', 'Periodo mas antiguo', 'Proximo vencimiento'], ';');
+        fputcsv($out, ['Empleado', 'Documento', 'Empresa', 'Area', 'Convenio', 'Estado cuenta',
+            'Pendiente total', 'Historico', 'Periodo actual', 'Liquidacion ' . date('Y'),
+            'Periodo mas antiguo', 'Proximo vencimiento'], ';');
         foreach ($report['rows'] as $row) {
             fputcsv($out, [
                 $row->full_name,
@@ -460,9 +601,11 @@ class VacationAdminController {
                 $row->company_name ?? '',
                 $row->area_name ?? '',
                 $row->agreement_name ?? '',
+                !empty($row->is_active) ? 'activo' : 'inactivo',
                 number_format($row->total_pending, 1, '.', ''),
                 number_format($row->historical_pending, 1, '.', ''),
                 number_format($row->current_pending, 1, '.', ''),
+                !empty($row->has_current_liquidation) ? 'si' : 'no',
                 $row->oldest_period ?? '',
                 $row->next_expiry ?? '',
             ], ';');
@@ -474,9 +617,9 @@ class VacationAdminController {
     private function vacationReportFilters() {
         $types = ['annual', 'historical', 'conventional_credit'];
         $activeInput = $_GET['active'] ?? 'active';
-        $balanceStatusInput = $_GET['balance_status'] ?? 'with';
+        $balanceStatusInput = $_GET['balance_status'] ?? 'both';
         $active = in_array($activeInput, ['active', 'inactive', 'all'], true) ? $activeInput : 'active';
-        $balanceStatus = in_array($balanceStatusInput, ['with', 'without', 'both'], true) ? $balanceStatusInput : 'with';
+        $balanceStatus = in_array($balanceStatusInput, ['with', 'without', 'both'], true) ? $balanceStatusInput : 'both';
         // Aislamiento organizacional: el reporte (filas, stats y CSV) queda
         // limitado a las empresas del grupo del admin, y un company_id ajeno
         // por URL se descarta.
@@ -498,6 +641,7 @@ class VacationAdminController {
             'area_id' => (int)($_GET['area_id'] ?? 0),
             'search' => trim($_GET['search'] ?? ''),
             'period' => preg_match('/^\d{4}(?:-\d{4})?$/', $_GET['period'] ?? '') ? $_GET['period'] : '',
+            'current_period' => (string)date('Y'),
             'balance_type' => in_array($_GET['balance_type'] ?? '', $types, true) ? $_GET['balance_type'] : '',
             'active' => $active,
             'balance_status' => $balanceStatus,
@@ -505,6 +649,9 @@ class VacationAdminController {
             'max_days' => is_numeric($_GET['max_days'] ?? null) ? $_GET['max_days'] : '',
             'historical_only' => !empty($_GET['historical_only']),
             'expiring_only' => !empty($_GET['expiring_only']),
+            'no_agreement' => !empty($_GET['no_agreement']),
+            'no_liquidation' => !empty($_GET['no_liquidation']),
+            'no_hire' => !empty($_GET['no_hire']),
             'sort' => trim($_GET['sort'] ?? 'pending_desc'),
             'page' => max(1, (int)($_GET['page'] ?? 1)),
             'per_page' => max(10, min(200, (int)($_GET['per_page'] ?? 50))),
@@ -513,11 +660,12 @@ class VacationAdminController {
 
     private function buildVacationStats(array $rows) {
         $stats = [
-            'employees_with_pending'=>0, 'total_pending'=>0, 'historical_pending'=>0,
+            'employees_total'=>0, 'employees_with_pending'=>0, 'total_pending'=>0, 'historical_pending'=>0,
             'current_pending'=>0, 'expiring_credits'=>0, 'without_agreement'=>0,
-            'without_current_liquidation'=>0, 'by_company'=>[], 'by_agreement'=>[],
+            'without_current_liquidation'=>0, 'without_hire_date'=>0, 'by_company'=>[], 'by_agreement'=>[],
         ];
         foreach ($rows as $row) {
+            $stats['employees_total']++;
             $pending = (float)$row->total_pending;
             if ($pending > 0) $stats['employees_with_pending']++;
             $stats['total_pending'] += $pending;
@@ -526,6 +674,7 @@ class VacationAdminController {
             if (!empty($row->has_expiring_credit)) $stats['expiring_credits']++;
             if (empty($row->effective_agreement_id)) $stats['without_agreement']++;
             if (empty($row->has_current_liquidation)) $stats['without_current_liquidation']++;
+            if (empty($row->hire_date)) $stats['without_hire_date']++;
             $company = $row->company_name ?: 'Sin empresa';
             $agreement = $row->agreement_name ?: 'Sin convenio';
             $stats['by_company'][$company] = ($stats['by_company'][$company] ?? 0) + $pending;
@@ -534,6 +683,40 @@ class VacationAdminController {
         arsort($stats['by_company']);
         arsort($stats['by_agreement']);
         return $stats;
+    }
+
+    private function reportsReturnPath() {
+        $raw = trim((string)($_POST['return_query'] ?? ''));
+        if ($raw === '') {
+            return '';
+        }
+        parse_str($raw, $parsed);
+        if (!is_array($parsed)) {
+            return '';
+        }
+        $allowed = [
+            'company_id', 'agreement_id', 'area_id', 'search', 'period', 'balance_type',
+            'active', 'balance_status', 'min_days', 'max_days', 'historical_only',
+            'expiring_only', 'no_agreement', 'no_liquidation', 'no_hire', 'sort', 'page', 'per_page',
+        ];
+        $clean = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $parsed)) {
+                continue;
+            }
+            $value = is_scalar($parsed[$key]) ? trim((string)$parsed[$key]) : '';
+            if ($value === '' || $value === '0' && in_array($key, ['company_id', 'agreement_id', 'area_id'], true)) {
+                continue;
+            }
+            if ($key === 'balance_status' && $value === 'both') {
+                continue;
+            }
+            if ($key === 'page' && (int)$value <= 1) {
+                continue;
+            }
+            $clean[$key] = $value;
+        }
+        return $clean ? ('vacationAdmin/reports?' . http_build_query($clean)) : 'vacationAdmin/reports';
     }
 
     private function view($view, $data = []) {

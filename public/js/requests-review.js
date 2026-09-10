@@ -102,14 +102,45 @@
                 if (exceptionBlock) exceptionBlock.style.display = 'none';
             }
 
+            var planillaWrap = document.getElementById('reqVacationPlanillaWrap');
+            var planillaLink = document.getElementById('reqVacationPlanillaLink');
+            if (planillaWrap && planillaLink) {
+                if (req.planilla_url) {
+                    planillaLink.href = req.planilla_url;
+                    planillaWrap.style.display = 'block';
+                } else {
+                    planillaLink.removeAttribute('href');
+                    planillaWrap.style.display = 'none';
+                }
+            }
+
             var certBlock = document.getElementById('reqReviewCertBlock');
             var certLink = document.getElementById('reqReviewCertLink');
-            if (req.certificate_url) {
+            var certWarn = document.getElementById('reqReviewCertWarn');
+            if (req.certificate_url || req.certificate_back_url) {
                 certBlock.style.display = 'block';
-                certLink.innerHTML = '<a href="' + escapeHtml(req.certificate_url) + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary"><i class="fas fa-file-download me-1"></i> Ver certificado</a>';
+                var links = '';
+                function certPreview(url, label) {
+                    if (!url) return '';
+                    var isImage = /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url);
+                    if (isImage) {
+                        return '<div class="mb-2"><div class="small text-muted mb-1">' + escapeHtml(label) + '</div>' +
+                            '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' +
+                            '<img src="' + escapeHtml(url) + '" alt="' + escapeHtml(label) + '" class="img-fluid rounded border" style="max-height:180px;object-fit:contain;background:#f8fafc"></a></div>';
+                    }
+                    return '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary me-1 mb-1"><i class="fas fa-file-download me-1"></i> ' + escapeHtml(label) + '</a>';
+                }
+                links += certPreview(req.certificate_url, 'Frente');
+                links += certPreview(req.certificate_back_url, 'Dorso');
+                certLink.innerHTML = links;
+                if (certWarn) certWarn.style.display = 'none';
             } else {
-                certBlock.style.display = 'none';
+                certBlock.style.display = req.agreement_leave_requires_certificate ? 'block' : 'none';
                 certLink.innerHTML = '';
+                if (certWarn) {
+                    certWarn.style.display = req.agreement_leave_requires_certificate ? 'block' : 'none';
+                    certWarn.textContent = 'Esta licencia exige certificado antes de aprobar.';
+                }
             }
 
             var fileInput = document.getElementById('reqReviewCertificate');

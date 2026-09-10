@@ -88,6 +88,18 @@ class NotificationBroadcast {
             }
 
             $this->db->commit();
+
+            if (function_exists('push_notify_user')) {
+                foreach ($pending as $personalized) {
+                    push_notify_user(
+                        (int)$personalized['user_id'],
+                        $personalized['title'] ?? '',
+                        $personalized['body'] ?? '',
+                        $personalized['link_url'] ?? null
+                    );
+                }
+            }
+
             return ['id' => $broadcastId, 'sent' => $sent, 'skipped' => $skipped];
         } catch (Throwable $e) {
             $this->db->rollBack();

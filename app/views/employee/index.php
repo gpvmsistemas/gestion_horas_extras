@@ -48,6 +48,8 @@ $userInitial = mb_strtoupper(mb_substr($primerNombre, 0, 1, 'UTF-8'), 'UTF-8');
     </div>
 </div>
 
+<?php require APPROOT . '/views/inc/partials/pwa_install_settings.php'; ?>
+
 <?php if ($showCpHome): ?>
 <a href="<?php echo URLROOT; ?>/cpTask/index" class="emp-cp-hero-cta text-decoration-none">
     <span class="emp-cp-hero-cta-icon" aria-hidden="true"><i class="fas fa-clipboard-list"></i></span>
@@ -113,6 +115,7 @@ $userInitial = mb_strtoupper(mb_substr($primerNombre, 0, 1, 'UTF-8'), 'UTF-8');
 <div class="alert alert-light border py-2 small mb-3">
     <i class="fas fa-umbrella-beach text-success me-1"></i>
     Tenés <strong><?php echo vacation_format_days($vacationPending); ?></strong> días de vacaciones pendientes.
+    <a href="<?php echo htmlspecialchars(vacation_planilla_employee_url()); ?>" target="_blank" rel="noopener">Imprimir planilla</a>
 </div>
 <?php endif; ?>
 
@@ -240,6 +243,6 @@ $userInitial = mb_strtoupper(mb_substr($primerNombre, 0, 1, 'UTF-8'), 'UTF-8');
 <?php endif; ?>
 
 <!-- Espacio inferior para bottom nav en mobile -->
-<div style="height:80px" class="d-lg-none"></div>
+<div class="emp-page-bottom-spacer d-lg-none" aria-hidden="true"></div>
 
 <?php require APPROOT . '/views/inc/footer.php'; ?>

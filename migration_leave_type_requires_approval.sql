@@ -1,0 +1,2 @@
+-- Licencias que solo se registran (ej. enfermedad) sin bandeja de aprobación de RRHH.
+-- Ejecutar con scripts/apply_leave_type_requires_approval_migration.php

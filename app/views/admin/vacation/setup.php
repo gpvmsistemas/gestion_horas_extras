@@ -12,6 +12,11 @@ $user = $data['user'];
         </div>
     </div>
     <div class="admin-page-actions">
+        <a href="<?php echo htmlspecialchars(vacation_planilla_staff_url((int)$user->id)); ?>"
+           class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">
+            <i class="fas fa-print me-1"></i>Planilla
+        </a>
+        <a href="<?php echo URLROOT; ?>/vacationAdmin/reports" class="btn btn-outline-secondary btn-sm">Reporte</a>
         <a href="<?php echo URLROOT; ?>/admin/employeeProfile/<?php echo (int)$user->id; ?>" class="btn btn-outline-secondary btn-sm">Ficha</a>
     </div>
 </div>
