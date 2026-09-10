@@ -18,7 +18,7 @@
 <div class="alert alert-light border small mb-4">
     <strong><i class="fas fa-info-circle me-1"></i>Cómo usarlo en tu grupo (varios rubros)</strong>
     <ul class="mb-0 mt-2">
-        <li><strong>Servicios Sociales</strong> y <strong>Ecofarma</strong> son empresas distintas en el sistema → cada una puede tener un convenio distinto en el panel de la derecha.</li>
+        <li>Cada sociedad del grupo es una empresa distinta en el sistema → cada una puede tener un convenio distinto en el panel de la derecha.</li>
         <li>Los convenios Comercio, Farmacia Córdoba, SOECRA, UTEDYC y Sanidad ya vienen precargados; solo deben asignarse donde corresponda.</li>
         <li>Si un empleado es excepción, en <strong>Editar usuario</strong> o <strong>Carga vacaciones</strong> elegí otro convenio (override individual).</li>
         <li>Prioridad de asignación: empleado, luego área y finalmente convenio por defecto de la empresa.</li>

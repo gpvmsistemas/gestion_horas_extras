@@ -87,7 +87,7 @@ $absenceRequests = array_values(array_filter($requests, function ($r) {
     <?php if (!$hasCompany): ?>
     <div class="alert alert-warning small mb-0">
         <i class="fas fa-building me-1"></i>
-        Tu usuario no tiene empresa asignada. Pedí a administración que te asignen una (Servicios Sociales, Casa Paviotti, A.M.S.S.I o Ecofarma).
+        Tu usuario no tiene empresa asignada. Pedí a administración que te asignen la sociedad que corresponde.
     </div>
     <?php elseif (empty($colleagues)): ?>
     <div class="emp-empty py-3">
