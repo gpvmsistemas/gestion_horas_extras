@@ -168,6 +168,17 @@ estado Pasada/En curso/Futura), y **Roadmap RRHH** (`/admin/hrRoadmap` —
 calendario mensual org-wide de ausencias, chips coloreadas por
 `companies.brand_color`, filtros empresa/ciudad/sucursal/tipo en cascada).
 
+**Configuración obligatoria por empresa**: el importador deja el CCT solo en el
+snapshot de cada período importado; los usuarios `M{n}` no tienen convenio
+propio. Para que el panel de liquidación calcule 2026, para que el reporte
+muestre "Convenio" y para que los empleados puedan **pedir vacaciones desde el
+portal** (el portal exige convenio efectivo), hay que asignar el CCT 430/05
+como **convenio por defecto de cada sociedad Moderna** en
+`Vacaciones → Convenios → Convenio por empresa` (FRANCE SRL hoy; MODERNA SRL y
+DISTRIBUIDORA cuando tengan nómina). Se guarda en `company_agreement_defaults`
+y solo puede tocarse desde la empresa activa en sesión (org-aislado). En el
+local ya está hecho para FRANCE SRL (10/09/2026); **en el VPS falta**.
+
 ## 7. Scripts de operación
 
 | Script | Qué hace |
@@ -322,6 +333,45 @@ con 7.4 antes de subir.
 por rama, y que el VPS solo reciba `git pull origin main` + applier. Si vuelve
 a pasar, el rescate es el de esta vez: rama + commit en el VPS, `git archive`,
 y reconstrucción sobre la base real (`INTEGRACION_SUITE_PM.md` §10b).
+
+## 10c. Verificación del módulo de vacaciones tras el merge de Lautaro (10/09/2026)
+
+Se validó de punta a punta, en el local con los datos importados, que el módulo
+sigue funcionando como se planteó originalmente:
+
+- **Antigüedad desde fecha de ingreso** (`users.hire_date`) y escala del CCT
+  430/05: el panel de liquidación 2026 reproduce exactamente los días del
+  período 2025 importado (Ruiz 231 m → 35, Martinez 335 m → 44, Felber 72 m →
+  26, Rivata 26 m → 17, etc.). Lautaro no tocó `getSeniorityMonths`.
+- **Datos importados intactos**: 9 períodos / 32 movimientos / 162 bloques;
+  ficha, reporte de saldos, planilla y Vacaciones tomadas los muestran igual.
+- **Bloqueo de carga**: `classifyDates` sigue marcando los días con bloque
+  `vacation` (Rivata 05/10 y 11/10/2026, Ruiz 23/03/2026 → "Vacaciones").
+- **Circuito de solicitud** (empleado Chiodi, 10 pendientes): vista previa
+  aplica mínimo 7 días, saldo insuficiente, inicio en lunes y aviso de 60 días
+  (`requires_override`); la aprobación sin motivo de excepción queda Pendiente,
+  con motivo genera movimientos `take` + `exception`, descuenta el período
+  (17/14/3), crea 7 bloques `vacation`, aparece en Tomadas como "Futura", en el
+  Roadmap de noviembre y bloquea la carga de horas. Datos de prueba revertidos.
+- **Aislamiento**: el admin Paviotti no ve empleados Moderna en panel, tomadas,
+  reportes (ni forzando `company_id=7`), planilla ni setup.
+- **README de Lautaro**: su contenido está completo en `README.md` (solo se
+  reemplazó el título/intro por el de Suite P&M y se agregó el puntero a este
+  documento).
+
+Corregido en esta pasada: textos con "Ecofarma / Servicios Sociales / Casa
+Paviotti" que se colaban en `Convenios` y en el portal de solicitudes para
+Moderna (`e836d98`).
+
+**Brecha conocida (diseño previo, no regresión)**: las licencias que el empleado
+solicita desde el portal (incluidas las de "solo aviso" tipo Enfermedad, que
+quedan Aprobadas al instante) **no** generan `employee_status_periods` ni
+bloques `leave`; por lo tanto no aparecen en el Roadmap RRHH ni bloquean la
+carga de horas. Solo las vacaciones (vía ledger) y los estados que RRHH carga
+en `Registro de horas → Estados` lo hacen. Si se quiere que una licencia
+aprobada bloquee horas y se vea en el roadmap, hay que crear el estado desde
+`RequestController::create` (auto-aviso) y `AdminController::approveRequest`
+(licencias con aprobación), adjuntando el certificado de la solicitud.
 
 ## 11. Pendientes / backlog
 
