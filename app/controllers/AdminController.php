@@ -1935,6 +1935,13 @@ class AdminController {
                 redirect('admin/requests?open=' . $id);
             }
         }
+        if (!empty($meta)) {
+            // Releer: el certificado adjuntado en este mismo POST debe verse al aprobar.
+            $fresh = $this->requestModel->getRequestByIdForCompanies($id, adminCompanyIds());
+            if ($fresh) {
+                $request = $fresh;
+            }
+        }
 
         $redirectUrl = 'admin/requests?open=' . $id;
 

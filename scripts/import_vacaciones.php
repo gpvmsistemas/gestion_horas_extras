@@ -167,6 +167,7 @@ if (!$ejecutar) {
 
 // ── Ejecución ──
 $db->beginTransaction();
+$omitidos = 0;
 try {
     foreach ($plan as $p) {
         // Período (upsert por user + label)
@@ -174,6 +175,15 @@ try {
         $per = $db->single([$p['user_id'], (string)$p['anio']]);
         if ($per) {
             $periodId = (int)$per->id;
+            // Si el sistema ya operó sobre ese período (solicitudes aprobadas,
+            // liquidación del motor), el informe NO lo pisa: se revisa a mano.
+            $db->query("SELECT COUNT(*) AS c FROM vacation_balance_movements WHERE period_id = ? AND source <> 'import'");
+            $ajenos = (int)($db->single([$periodId])->c ?? 0);
+            if ($ajenos > 0) {
+                echo "  OMITIDO usuario {$p['user_id']} período {$p['anio']}: tiene {$ajenos} movimiento(s) del sistema; no se pisa.\n";
+                $omitidos++;
+                continue;
+            }
             $db->query(
                 "UPDATE vacation_balance_periods
                  SET days_entitled=?, adjustment_days=?, days_taken=?, days_pending=?, origin_notes=?
@@ -241,7 +251,8 @@ try {
         $db->execute([$p['saldo'], $p['user_id']]);
     }
     $db->commit();
-    echo "\nIMPORTACIÓN DE VACACIONES COMPLETA: " . count($plan) . " colaborador(es).\n";
+    echo "\nIMPORTACIÓN DE VACACIONES COMPLETA: " . (count($plan) - $omitidos) . " colaborador(es)"
+        . ($omitidos > 0 ? ", {$omitidos} omitido(s) por tener movimientos del sistema" : '') . ".\n";
 } catch (Throwable $e) {
     $db->rollBack();
     die('ERROR — rollback total: ' . $e->getMessage() . "\n");

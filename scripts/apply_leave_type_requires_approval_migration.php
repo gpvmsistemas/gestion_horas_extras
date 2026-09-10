@@ -21,7 +21,9 @@ if ((int)$st->fetchColumn() === 0) {
         AFTER requires_certificate');
     echo "Columna collective_agreement_leave_types.requires_approval creada.\n";
 } else {
-    echo "Columna collective_agreement_leave_types.requires_approval ya existe.\n";
+    echo "Columna collective_agreement_leave_types.requires_approval ya existe: migración ya aplicada, sin cambios.\n";
+    echo "(No se vuelven a marcar licencias ni a aprobar solicitudes en masa: eso lo decide RRHH desde Convenios.)\n";
+    exit(0);
 }
 
 $updated = $pdo->exec("UPDATE collective_agreement_leave_types

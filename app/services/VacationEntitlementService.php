@@ -128,6 +128,26 @@ class VacationEntitlementService {
     }
 
     /**
+     * Meses de antigüedad a efectos de la ESCALA del convenio. Las escalas se
+     * cortan por años cumplidos ("hasta 5 años inclusive" / "más de 5 años"):
+     * 5 años y 15 días ya es "más de 5 años", así que un mes empezado cuenta
+     * como cumplido al comparar contra min/max_months. Para mostrar la
+     * antigüedad se sigue usando seniorityMonthsBetween (meses completos).
+     */
+    public function seniorityMonthsForScale($hireDate, $asOfDate = null) {
+        if (empty($hireDate)) {
+            return 0;
+        }
+        $asOf = $asOfDate ? new DateTime($asOfDate) : new DateTime();
+        $hire = new DateTime($hireDate);
+        if ($hire > $asOf) {
+            return 0;
+        }
+        $diff = $hire->diff($asOf);
+        return ($diff->y * 12) + $diff->m + ($diff->d > 0 ? 1 : 0);
+    }
+
+    /**
      * Calcula días que corresponden según convenio y antigüedad (sin guardar en BD).
      * @param int $userId
      * @param array{hire_date?:string,agreement_id?:int,as_of_date?:string,period_label?:string} $params
@@ -177,13 +197,23 @@ class VacationEntitlementService {
         }
 
         $cutDate = $bounds['period_end'];
+        if ($hireDate > $cutDate) {
+            return [
+                'ok' => false,
+                'message' => 'El empleado ingresó el ' . date('d/m/Y', strtotime($hireDate)) . ', después del cierre del período '
+                    . $bounds['period_label'] . ': no corresponde liquidarlo.',
+                'seniority_months' => 0,
+                'agreement_code' => $agreement->code,
+            ];
+        }
         $months = $this->seniorityMonthsBetween($hireDate, $cutDate);
+        $scaleMonths = $this->seniorityMonthsForScale($hireDate, $cutDate);
         $rules = $this->agreementModel->getRules((int)$agreement->id);
         $rule = null;
         foreach ($rules as $r) {
             $min = (int)$r->min_months;
             $max = $r->max_months !== null ? (int)$r->max_months : PHP_INT_MAX;
-            if ($months >= $min && $months <= $max) {
+            if ($scaleMonths >= $min && $scaleMonths <= $max) {
                 $rule = $r;
                 break;
             }
@@ -236,7 +266,11 @@ class VacationEntitlementService {
         $reference = $asOfDate ?: date('Y-m-d');
         // LCT art. 150: antigüedad al 31 de diciembre del año del período.
         $cutDate = date('Y-12-31', strtotime($reference));
-        $months = $this->getSeniorityMonths($userId, $cutDate);
+        if (empty($user->hire_date) || $user->hire_date > $cutDate) {
+            // Sin ingreso, o ingresó después del cierre del período: no hay escala aplicable.
+            return null;
+        }
+        $months = $this->seniorityMonthsForScale($user->hire_date, $cutDate);
         $rules = $this->agreementModel->getRules((int)$agreement->id);
         foreach ($rules as $rule) {
             $min = (int)$rule->min_months;
@@ -291,8 +325,25 @@ class VacationEntitlementService {
     }
 
     /**
+     * Período cuyo saldo vino de un importador (informe RRHH): es la fuente de
+     * verdad y nunca se recalcula con la escala; se corrige desde Carga / ajustes.
+     */
+    public function isImportedPeriod($period) {
+        if (!$period) {
+            return false;
+        }
+        if (stripos((string)($period->origin_notes ?? ''), 'Importado') === 0) {
+            return true;
+        }
+        $this->db->query("SELECT COUNT(*) AS c FROM vacation_balance_movements WHERE period_id = :pid AND source = 'import'");
+        $this->db->bind(':pid', (int)$period->id);
+        $row = $this->db->single();
+        return (int)($row->c ?? 0) > 0;
+    }
+
+    /**
      * Liquida un período para un empleado (crea o actualiza vacation_balance_periods).
-     * @return array{ok:bool,message:string,period_id?:int}
+     * @return array{ok:bool,message:string,period_id?:int,skipped?:bool}
      */
     public function liquidatePeriod($userId, $periodLabel = null, $adminId = 0, $asOfDate = null) {
         if (!$this->isReady()) {
@@ -322,6 +373,17 @@ class VacationEntitlementService {
         }
 
         $daysEntitled = (float)$rule->days_entitled;
+        $pre = $this->balanceModel->getPeriodByUserLabel($userId, $bounds['period_label'], 'annual');
+        if ($pre && $this->isImportedPeriod($pre)) {
+            return [
+                'ok' => false,
+                'skipped' => true,
+                'period_id' => (int)$pre->id,
+                'message' => 'Período ' . $bounds['period_label'] . ' importado del informe RRHH: se conserva tal cual ('
+                    . vacation_format_days($pre->days_entitled) . ' días corresponden, '
+                    . vacation_format_days($pre->days_pending) . ' pendientes). Para corregirlo usá Carga / ajustes.',
+            ];
+        }
         $ownTx = !$this->db->inTransaction();
         if ($ownTx) $this->db->beginTransaction();
         try {
@@ -751,6 +813,14 @@ class VacationEntitlementService {
                     'user_id' => $uid,
                     'name' => $emp->full_name,
                     'status' => 'ok',
+                    'message' => $result['message'],
+                ];
+            } elseif (!empty($result['skipped'])) {
+                $skipped++;
+                $details[] = [
+                    'user_id' => $uid,
+                    'name' => $emp->full_name,
+                    'status' => 'skipped',
                     'message' => $result['message'],
                 ];
             } else {

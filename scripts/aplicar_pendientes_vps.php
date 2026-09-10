@@ -846,6 +846,21 @@ $paso('Licencias solo aviso (requires_approval)',
         $pdo->exec("UPDATE collective_agreement_leave_types SET name = 'Enfermedad' WHERE UPPER(code) = 'ENFERMEDAD'");
     });
 
+// ── 18b · Enfermedad con goce de sueldo (LCT art. 208) ───────────────────────
+$paso('Licencia Enfermedad con goce de sueldo (is_paid)',
+    function () use ($hasTab, $scalar) {
+        if (!$hasTab('collective_agreement_leave_types')) {
+            return true;
+        }
+        return (int)$scalar("SELECT COUNT(*) FROM collective_agreement_leave_types
+            WHERE UPPER(code) = 'ENFERMEDAD' AND is_paid = 0") === 0;
+    },
+    function () use ($pdo) {
+        $pdo->exec("UPDATE collective_agreement_leave_types
+            SET is_paid = 1, legal_reference = 'LCT arts. 208 y 209'
+            WHERE UPPER(code) = 'ENFERMEDAD'");
+    });
+
 // ── 15 · Colación unificada ─────────────────────────────────────────────────
 // MySQL 8 crea tablas nuevas con utf8mb4_0900_ai_ci (su default) mientras las
 // tablas heredadas son utf8mb4_general_ci: comparar texto entre ambas da

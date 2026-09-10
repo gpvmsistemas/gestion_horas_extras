@@ -220,9 +220,11 @@ function vacation_default_target_period_label($referenceDate = null) {
     if ($ts === false) {
         $ts = time();
     }
-    $year = (int)date('Y', $ts);
-    $month = (int)date('n', $ts);
-    return (string)($month >= 10 ? $year + 1 : $year);
+    // El label es el AÑO DE DEVENGO (antigüedad al 31/12 de ese año; se goza
+    // al año siguiente, LCT 150/154). Aunque desde octubre ya se planifica el
+    // goce, el período a liquidar sigue siendo el del año en curso: abrir el
+    // año siguiente crearía saldo consumible hoy con antigüedad a fecha futura.
+    return (string)date('Y', $ts);
 }
 
 /** Lista de labels de período para el hub (Y-2 … Y+1). */

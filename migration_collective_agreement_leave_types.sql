@@ -35,7 +35,8 @@ SELECT 'Licencia', '#0dcaf0' FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM request_types WHERE LOWER(name) = 'licencia');
 
 -- Catálogo base LCT / práctica habitual (se replica en cada convenio precargado).
-INSERT INTO collective_agreement_leave_types
+-- INSERT IGNORE: re-ejecutar solo agrega lo que falta y NO pisa lo que RRHH editó en Convenios.
+INSERT IGNORE INTO collective_agreement_leave_types
     (agreement_id, code, name, description, legal_reference, category, is_paid, requires_certificate,
      max_days_per_year, max_days_per_event, min_notice_days, day_count_mode, sort_order, is_active, notes)
 SELECT ca.id, v.code, v.name, v.description, v.legal_reference, v.category, v.is_paid, v.requires_certificate,
@@ -44,7 +45,7 @@ FROM collective_agreements ca
 JOIN (
     SELECT 'ENFERMEDAD' AS code, 'Enfermedad' AS name,
            'Ausencia por enfermedad o accidente doméstico con certificado médico.' AS description,
-           'LCT art. 212' AS legal_reference, 'medical' AS category, 0 AS is_paid, 1 AS requires_certificate,
+           'LCT arts. 208 y 209' AS legal_reference, 'medical' AS category, 1 AS is_paid, 1 AS requires_certificate,
            NULL AS max_days_per_year, NULL AS max_days_per_event, NULL AS min_notice_days,
            'calendar' AS day_count_mode, 10 AS sort_order,
            'La continuidad del pago depende de antigüedad y normativa aplicable.' AS notes
@@ -82,24 +83,10 @@ JOIN (
            'Asistencia a actos, congresos o delegación sindical convocada.', 'LCT art. 14 bis', 'gremial', 1, 1,
            NULL, NULL, NULL, 'calendar', 120, 'Requiere convocatoria del sindicato cuando corresponda.'
 ) AS v ON 1=1
-WHERE ca.code IN ('CEC', 'FARMACIA-430-05', 'SOECRA-761-19', 'UTEDYC-2023', 'SANIDAD-122-75')
-ON DUPLICATE KEY UPDATE
-    name = VALUES(name),
-    description = VALUES(description),
-    legal_reference = VALUES(legal_reference),
-    category = VALUES(category),
-    is_paid = VALUES(is_paid),
-    requires_certificate = VALUES(requires_certificate),
-    max_days_per_year = VALUES(max_days_per_year),
-    max_days_per_event = VALUES(max_days_per_event),
-    min_notice_days = VALUES(min_notice_days),
-    day_count_mode = VALUES(day_count_mode),
-    sort_order = VALUES(sort_order),
-    is_active = VALUES(is_active),
-    notes = VALUES(notes);
+WHERE ca.code IN ('CEC', 'FARMACIA-430-05', 'SOECRA-761-19', 'UTEDYC-2023', 'SANIDAD-122-75');
 
 -- Sanidad: licencias convencionales especiales (separadas de vacaciones ordinarias).
-INSERT INTO collective_agreement_leave_types
+INSERT IGNORE INTO collective_agreement_leave_types
     (agreement_id, code, name, description, legal_reference, category, is_paid, requires_certificate,
      max_days_per_year, max_days_per_event, min_notice_days, day_count_mode, sort_order, is_active, notes)
 SELECT ca.id, 'SANIDAD_ESPECIAL', 'Licencia convencional especial (Sanidad)',
@@ -107,16 +94,10 @@ SELECT ca.id, 'SANIDAD_ESPECIAL', 'Licencia convencional especial (Sanidad)',
        'CCT 122/75', 'special', 1, 1, NULL, NULL, NULL, 'calendar', 200, 1,
        'Registrar motivo y documentación. No consume saldo de vacaciones.'
 FROM collective_agreements ca
-WHERE ca.code = 'SANIDAD-122-75'
-ON DUPLICATE KEY UPDATE
-    name = VALUES(name),
-    description = VALUES(description),
-    legal_reference = VALUES(legal_reference),
-    notes = VALUES(notes),
-    is_active = VALUES(is_active);
+WHERE ca.code = 'SANIDAD-122-75';
 
 -- SOECRA: referencia a conteo hábil en licencias médicas prolongadas.
-INSERT INTO collective_agreement_leave_types
+INSERT IGNORE INTO collective_agreement_leave_types
     (agreement_id, code, name, description, legal_reference, category, is_paid, requires_certificate,
      max_days_per_year, max_days_per_event, min_notice_days, day_count_mode, sort_order, is_active, notes)
 SELECT ca.id, 'SOECRA_PROLONGADA', 'Licencia médica prolongada (SOECRA)',
@@ -124,10 +105,4 @@ SELECT ca.id, 'SOECRA_PROLONGADA', 'Licencia médica prolongada (SOECRA)',
        'CCT 761/19', 'medical', 0, 1, NULL, NULL, NULL, 'business_mon_sat', 15, 1,
        'Contar días hábiles lun-sáb sin feriados cuando RRHH lo indique.'
 FROM collective_agreements ca
-WHERE ca.code = 'SOECRA-761-19'
-ON DUPLICATE KEY UPDATE
-    name = VALUES(name),
-    description = VALUES(description),
-    day_count_mode = VALUES(day_count_mode),
-    notes = VALUES(notes),
-    is_active = VALUES(is_active);
+WHERE ca.code = 'SOECRA-761-19';

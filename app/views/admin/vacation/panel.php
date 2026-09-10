@@ -132,7 +132,7 @@ $panelQs = static function (array $overrides = []) use ($period, $filter) {
                 <label class="form-label small fw-semibold">Alcance</label>
                 <select name="only_missing" id="vacOnlyMissing" class="form-select">
                     <option value="1" selected>Solo faltantes (recomendado)</option>
-                    <option value="0">Recalcular existentes (corrige fechas/días; conserva tomas)</option>
+                    <option value="0">Recalcular existentes (corrige fechas/días; conserva tomas; no toca períodos importados)</option>
                 </select>
             </div>
             <div class="col-md-8 d-flex flex-wrap gap-2 align-items-center">
