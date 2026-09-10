@@ -363,6 +363,52 @@ Corregido en esta pasada: textos con "Ecofarma / Servicios Sociales / Casa
 Paviotti" que se colaban en `Convenios` y en el portal de solicitudes para
 Moderna (`e836d98`).
 
+**Auditoría adversarial del diff de Lautaro (4 dimensiones × verificación) y
+correcciones aplicadas en `ce13a84`:**
+
+- **Escala por años cumplidos** (`seniorityMonthsForScale`): la escala se
+  comparaba con meses completos, así que 5 años y 15 días (Felber al
+  31/12/2025) caía en "hasta 5 años inclusive" → 17 en vez de los 26 del
+  informe. Ahora un mes empezado cuenta como cumplido para elegir la regla;
+  la antigüedad mostrada sigue en meses completos. 5 años justos sigue → 17.
+- **Períodos importados protegidos**: `liquidatePeriod` ya no recalcula un
+  período con `origin_notes` "Importado…" o movimientos `source='import'`
+  (devuelve `skipped`; el batch "Recalcular existentes" los cuenta como
+  omitidos). Antes, un click en el rayo del panel o el batch con alcance
+  "Recalcular" pisaba 26→17, dejaba el saldo en 0 y cerraba el período
+  (verificado con rollback). Corrección de un importado = Carga / ajustes.
+- **No se liquida un período cerrado antes del ingreso** (Vila, ingreso
+  08/2026, en 2025 → bloqueado, antes daba 17 días).
+- **Período objetivo por defecto = año en curso**: el helper devolvía año+1
+  desde octubre; como el label es el año de devengo, en octubre 2026 el botón
+  de la ficha y el panel habrían creado "2027" con antigüedad a fecha futura y
+  saldo consumible de inmediato.
+- **Aprobar adjuntando el certificado en el mismo POST** fallaba con "falta
+  el certificado" (objeto stale en `processRequest`); ahora relee la solicitud.
+- **Seed de licencias** con `INSERT IGNORE` (re-ejecutar no pisa lo que RRHH
+  editó en Convenios) y **Enfermedad con goce de sueldo** (LCT 208/209; venía
+  `is_paid=0` y el portal la mostraba "Sin goce") → paso 18b del applier.
+- **Script standalone `apply_leave_type_requires_approval_migration.php`**
+  con guarda: re-ejecutarlo volvía a marcar ENFERMEDAD y aprobaba en masa.
+- **`import_vacaciones.php`** no pisa un período que ya tiene movimientos del
+  sistema (solicitudes aprobadas / liquidación del motor): lo omite y avisa.
+
+Confirmado por la auditoría y **dejado como está** (decisiones de diseño, a
+revisar con Lautaro): (a) el catálogo de convenios es global — un RRHH de
+Paviotti puede editar reglas/licencias del CCT 430/05 que usa Moderna (y
+Ecofarma también es farmacia, así que compartirlo tiene sentido); (b) la
+migración replica las 12 licencias LCT en los 5 convenios, con lo que Moderna
+recibe el flujo de licencias (Enfermedad "solo aviso") sin opt-in — RRHH
+Moderna puede desactivar tipos o exigir aprobación desde Convenios; (c) el
+reporte de saldos resuelve el convenio con `COALESCE(users, areas, default
+empresa)` y no mira `employee_company_assignments.agreement_id` que Lautaro
+sumó al servicio (hoy inerte: todas en NULL); (d) sin control de solapamiento
+entre licencias/vacaciones; (e) los avisos de enfermedad nacen aprobados y no
+tienen bandeja ni alerta para certificado faltante; (f) los KPI "Sin liquidar
+2026 / Histórico" son literales: los 9 de Moderna tienen solo el 2025
+importado, así que 2026 figura sin liquidar hasta que RRHH lo liquide (o
+importe el informe 2026 — no ambas cosas para el mismo período).
+
 **Brecha conocida (diseño previo, no regresión)**: las licencias que el empleado
 solicita desde el portal (incluidas las de "solo aviso" tipo Enfermedad, que
 quedan Aprobadas al instante) **no** generan `employee_status_periods` ni

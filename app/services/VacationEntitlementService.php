@@ -676,7 +676,9 @@ class VacationEntitlementService {
 
             if (!$rule) {
                 $row['status'] = 'blocked';
-                $row['message'] = 'Sin regla para la antigüedad';
+                $row['message'] = (string)$emp->hire_date > (string)$bounds['period_end']
+                    ? 'Ingresó después del cierre del período'
+                    : 'Sin regla para la antigüedad';
                 $stats['blocked']++;
                 $rows[] = $row;
                 continue;
