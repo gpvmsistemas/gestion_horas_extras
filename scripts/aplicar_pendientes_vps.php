@@ -933,4 +933,7 @@ $paso('Colación unificada utf8mb4_general_ci (evita error 1267 en MySQL 8)',
     });
 
 echo "\nListo. Ahora: php scripts/verificar_esquema_vps.php\n";
-echo "(El paso 'Scope admin Moderna' queda pendiente hasta crear el usuario axel.moderna.)\n";
+if ((int)$scalar("SELECT COUNT(*) FROM users WHERE username = 'axel.moderna'") === 0) {
+    echo "(El paso 'Scope admin Moderna' queda pendiente hasta crear el usuario axel.moderna: php scripts/crear_admin_moderna.php)
+";
+}
