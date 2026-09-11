@@ -168,16 +168,17 @@ estado Pasada/En curso/Futura), y **Roadmap RRHH** (`/admin/hrRoadmap` —
 calendario mensual org-wide de ausencias, chips coloreadas por
 `companies.brand_color`, filtros empresa/ciudad/sucursal/tipo en cascada).
 
-**Configuración obligatoria por empresa**: el importador deja el CCT solo en el
-snapshot de cada período importado; los usuarios `M{n}` no tienen convenio
-propio. Para que el panel de liquidación calcule 2026, para que el reporte
-muestre "Convenio" y para que los empleados puedan **pedir vacaciones desde el
-portal** (el portal exige convenio efectivo), hay que asignar el CCT 430/05
-como **convenio por defecto de cada sociedad Moderna** en
-`Vacaciones → Convenios → Convenio por empresa` (FRANCE SRL hoy; MODERNA SRL y
-DISTRIBUIDORA cuando tengan nómina). Se guarda en `company_agreement_defaults`
-y solo puede tocarse desde la empresa activa en sesión (org-aislado). En el
-local ya está hecho para FRANCE SRL (10/09/2026); **en el VPS falta**.
+**Convenio: lo asigna RRHH por empleado, NO hay default de empresa (decisión
+de Axel, 11/09/2026)**: el importador deja el CCT solo en el snapshot de cada
+período importado y los usuarios `M{n}` llegan sin convenio. RRHH lo carga
+empleado por empleado desde la ficha (`Vacaciones → Carga / períodos`, es
+decir `vacationAdmin/vacationSetup/{id}`, select "Convenio"; queda en
+`users.agreement_id`). Hasta que lo cargue, ese empleado: no aparece "Listo"
+en el panel de liquidación, figura "Sin convenio" en el reporte, y en el portal
+ve "Sin convenio en tu ficha" y no puede pedir vacaciones ni licencias (el
+portal exige convenio efectivo). Es el comportamiento esperado. La opción
+`Convenios → Convenio por empresa` existe pero no se usa en Moderna: en el
+local se probó y se revirtió (`company_agreement_defaults` vacía).
 
 ## 7. Scripts de operación
 
