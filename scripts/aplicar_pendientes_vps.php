@@ -27,10 +27,7 @@ if (php_sapi_name() !== 'cli') {
     die("Solo CLI.\n");
 }
 $root = dirname(__DIR__);
-require $root . '/app/config/config.php';
-if (file_exists($root . '/app/config/config.local.php')) {
-    require $root . '/app/config/config.local.php';
-}
+require $root . '/app/config/config.php'; // ya incluye config.local.php si existe
 
 $pdo = new PDO(
     'mysql:host=' . DB_HOST . (defined('DB_PORT') ? ';port=' . DB_PORT : '') . ';dbname=' . DB_NAME . ';charset=utf8mb4',
@@ -205,17 +202,32 @@ $paso('Relojes (clock_devices + sucursales + mapeos + asignaciones)',
     });
 
 $paso('Seed de relojes desde marcaciones_cache',
-    fn() => !$hasTab('marcaciones_cache'),
+    function () use ($hasTab, $scalar) {
+        if (!$hasTab('marcaciones_cache') || !$hasTab('clock_devices')) {
+            return true;
+        }
+        return (int)$scalar("SELECT COUNT(DISTINCT TRIM(mc.device_name)) FROM marcaciones_cache mc
+            WHERE mc.device_name IS NOT NULL AND TRIM(mc.device_name) <> ''
+              AND NOT EXISTS (SELECT 1 FROM clock_devices cd WHERE cd.external_name = TRIM(mc.device_name))") === 0;
+    },
     function () use ($pdo) {
-        $pdo->exec("INSERT INTO clock_devices (external_name, display_name)
+        // Solo inserta los relojes que faltan: nunca pisa display_name editados por RRHH.
+        $pdo->exec("INSERT IGNORE INTO clock_devices (external_name, display_name)
             SELECT DISTINCT TRIM(device_name), TRIM(device_name)
             FROM marcaciones_cache
-            WHERE device_name IS NOT NULL AND TRIM(device_name) <> ''
-            ON DUPLICATE KEY UPDATE display_name = VALUES(display_name)");
+            WHERE device_name IS NOT NULL AND TRIM(device_name) <> ''");
     });
 
 $paso('Seed de employee_branch_assignments desde users.branch_id',
-    fn() => false,
+    function () use ($hasTab, $scalar) {
+        if (!$hasTab('employee_branch_assignments')) {
+            return false;
+        }
+        return (int)$scalar("SELECT COUNT(*) FROM users u
+            WHERE u.branch_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM employee_branch_assignments a
+                              WHERE a.user_id = u.id AND a.branch_id = u.branch_id)") === 0;
+    },
     function () use ($pdo) {
         $pdo->exec('INSERT IGNORE INTO employee_branch_assignments (user_id, branch_id, is_primary)
             SELECT id, branch_id, 1 FROM users WHERE branch_id IS NOT NULL');
@@ -223,7 +235,8 @@ $paso('Seed de employee_branch_assignments desde users.branch_id',
 
 // ── 5 · Control de acceso (todas sus sentencias son auto-guardadas) ─────────
 $paso('Control de acceso (user_access_scopes + políticas + auditoría)',
-    fn() => false,
+    fn() => $hasTab('user_access_scopes') && $hasTab('organization_feature_policies')
+        && $hasTab('user_feature_overrides') && $hasTab('access_audit_log'),
     function () use ($pdo, $root) {
         $sql = file_get_contents($root . '/migration_access_control_scopes.sql');
         if ($sql === false) {
@@ -386,7 +399,23 @@ $paso('Sucursales Moderna (32 sucursales)',
 
 // ── 9 · Reparto de sucursales y respaldos por sociedad (idempotente) ────────
 $paso('Reasignación de sucursales por sociedad + ubicación administrativa',
-    fn() => false,
+    function () use ($hasTab, $scalar) {
+        // Ya aplicada cuando ninguna sucursal Moderna está en la sociedad equivocada
+        // y cada sociedad tiene ubicación. Así no se vuelve a re-sincronizar
+        // users.company_id (RRHH puede haber movido gente a propósito).
+        if (!$hasTab('company_locations')) {
+            return false;
+        }
+        $mal = (int)$scalar("SELECT COUNT(*) FROM company_branches cb
+            JOIN companies c ON c.id = cb.company_id AND c.organization_group = 'moderna'
+            WHERE (cb.name IN ('Farmacia Moderna 1','Farmacia Moderna 2','Farmacia Moderna 3','Farmacia Moderna 4') AND c.name <> 'MODERNA SRL')
+               OR (cb.name = 'Distribuidora FCF' AND c.name <> 'DISTRIBUIDORA FCF SAS')
+               OR (cb.name NOT IN ('Farmacia Moderna 1','Farmacia Moderna 2','Farmacia Moderna 3','Farmacia Moderna 4','Distribuidora FCF') AND c.name <> 'FRANCE SRL')");
+        $sinUbic = (int)$scalar("SELECT COUNT(*) FROM companies c
+            WHERE c.organization_group = 'moderna'
+              AND NOT EXISTS (SELECT 1 FROM company_locations cl WHERE cl.company_id = c.id)");
+        return $mal === 0 && $sinUbic === 0;
+    },
     function () use ($pdo, $hasCol) {
         $pdo->exec("UPDATE company_branches cb
             JOIN companies actual ON actual.id = cb.company_id AND actual.organization_group = 'moderna'
@@ -429,7 +458,19 @@ $paso('company_branches.schedule_text',
     fn() => $pdo->exec('ALTER TABLE company_branches ADD COLUMN schedule_text VARCHAR(255) NULL AFTER province'));
 
 $paso('Seed de horarios de atención (solo sucursales sin horario cargado)',
-    fn() => false,
+    function () use ($hasCol, $scalar) {
+        if (!$hasCol('company_branches', 'schedule_text')) {
+            return false;
+        }
+        return (int)$scalar("SELECT COUNT(*) FROM company_branches cb
+            JOIN companies c ON c.id = cb.company_id AND c.organization_group = 'moderna'
+            WHERE cb.name IN ('Farmacia Moderna 1','Farmacia Moderna 2','Farmacia Moderna 3','Farmacia Moderna 4',
+                'Farmacia Moderna 5','Farmacia Moderna 7','Farmacia Moderna 8','Farmacia Moderna 9','Farmacia Moderna 10',
+                'Farmacia Moderna 11','Farmacia Moderna 12','Marcellino','Farmacia del Condor','Farmacia del Subnivel',
+                'Farmacia Marañon','Farmacia Palermo','Farmacia Plaza','Farmacia Oulton','Farmacia Alladio',
+                'Farmacia Muscatelo','Santa Teresita','General Paz','Farmacia Novofarma')
+              AND (cb.schedule_text IS NULL OR cb.schedule_text = '')") === 0;
+    },
     function () use ($pdo) {
         $horarios = [
             'Farmacia Moderna 1'    => 'Lunes a Viernes: 08:00 a 21:30 | Sábado: 08:30 a 13:30 y 16:30 a 21:30',

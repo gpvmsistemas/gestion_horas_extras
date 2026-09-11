@@ -13,10 +13,7 @@ if (php_sapi_name() !== 'cli') {
     die("Solo CLI.\n");
 }
 $root = dirname(__DIR__);
-require $root . '/app/config/config.php';
-if (file_exists($root . '/app/config/config.local.php')) {
-    require $root . '/app/config/config.local.php';
-}
+require $root . '/app/config/config.php'; // ya incluye config.local.php si existe
 require $root . '/app/models/Database.php';
 
 $db = new Database();
