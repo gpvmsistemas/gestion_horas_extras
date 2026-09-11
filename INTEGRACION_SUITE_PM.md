@@ -218,6 +218,28 @@ pero cualquier SQL/feature nueva debe respetarlas:
    dueño: `public/uploads/` y `storage/` necesitan grupo www-data con
    escritura (setgid) — ver DESPLIEGUE_VPS.md.
 
+### 8b. Conexión a la base: un solo handle PDO por petición (11/09/2026)
+
+`Database` usa `PDO::ATTR_PERSISTENT`. Todas las instancias comparten la
+MISMA conexión MySQL, pero hasta `cd937aa` cada `new Database()` creaba un
+objeto PDO distinto sobre ella: al destruirse cualquiera de esos objetos con
+una transacción abierta, PDO hacía **ROLLBACK de la conexión compartida** y el
+`commit()` del que la abrió fallaba con "There is no active transaction"
+(reproducido con `User::createUser` → `saveBranchAssignments` →
+`new Company()`; prueba en `scratchpad/tx_test.php`). Ahora el handle vive en
+un `static` y todas las instancias lo comparten; `SET NAMES` y `sql_mode` se
+ejecutan una vez por petición. Regla que sigue valiendo: dentro de una
+transacción, pasar el mismo `$db` a los modelos que participan
+(`new Request($db)`), y no asumir que dos `Database` son conexiones distintas.
+
+**Alta de usuarios en blanco (11/09)**: `AdminController::createUser` no
+renderizaba nada cuando `User::createUser` devolvía `false` tras insertar el
+usuario, o si un paso posterior (hijos/as, permisos, legajo) lanzaba una
+excepción con `display_errors` apagado → página en blanco con el usuario ya
+creado. Desde `a594f0c` el alta es atómica (INSERT + sucursales en
+transacción, `lastCreateError`), el formulario vuelve con el motivo, y los
+pasos posteriores van en `try/catch` con aviso en Usuarios y `error_log`.
+
 ## 9. Estado del VPS (25/08/2026)
 
 - `/var/www/html/gestion_horas_extra` en rama `integracion` (remoto
