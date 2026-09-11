@@ -384,20 +384,32 @@ class User {
         $vals[] = $data['profile_picture'];
 
         $placeholders = implode(', ', array_fill(0, count($cols), '?'));
-        $this->db->query('INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')');
-        if (!$this->db->execute($vals)) {
+        // Alta atómica: si fallan las sucursales, no queda un usuario a medias.
+        $this->lastCreateError = '';
+        $ownTx = !$this->db->inTransaction();
+        if ($ownTx) $this->db->beginTransaction();
+        try {
+            $this->db->query('INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . $placeholders . ')');
+            if (!$this->db->execute($vals)) {
+                throw new RuntimeException('No se pudo insertar el usuario.');
+            }
+            $newId = (int)$this->db->lastInsertId();
+            if ($this->isMultipleBranchAssignmentsReady()
+                && !$this->saveBranchAssignments($newId, $companyId, $data['branch_ids'] ?? [], (int)($data['branch_id'] ?? 0))) {
+                throw new RuntimeException('No se pudieron guardar las sucursales (¿pertenecen a la empresa elegida?).');
+            }
+            if ($ownTx) $this->db->commit();
+            return true;
+        } catch (Throwable $e) {
+            if ($ownTx) $this->db->rollBack();
+            $this->lastCreateError = $e->getMessage();
+            error_log('User::createUser(' . ($data['username'] ?? '?') . '): ' . $e->getMessage());
             return false;
         }
-        if ($this->isMultipleBranchAssignmentsReady()) {
-            return $this->saveBranchAssignments(
-                (int)$this->db->lastInsertId(),
-                $companyId,
-                $data['branch_ids'] ?? [],
-                (int)($data['branch_id'] ?? 0)
-            );
-        }
-        return true;
     }
+
+    /** Detalle del último fallo de createUser() (para mostrarlo en el formulario). */
+    public $lastCreateError = '';
 
     public function updateUser($data) {
         $profileReady = $this->isProfileExtendedReady();

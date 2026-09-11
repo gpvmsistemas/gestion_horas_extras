@@ -1498,39 +1498,55 @@ class AdminController {
             }
             if(empty($data['errors'])){
                 $data['password_hash'] = password_hash($data['password'], PASSWORD_DEFAULT);
-                if($this->userModel->createUser($data)){
+                $created = false;
+                try {
+                    $created = $this->userModel->createUser($data);
+                } catch (Throwable $e) {
+                    error_log('createUser(' . $data['username'] . '): ' . $e->getMessage());
+                    $this->userModel->lastCreateError = $e->getMessage();
+                }
+                if ($created) {
                     $createdUser = $this->userModel->getUserByUsername($data['username']);
-                    if ($createdUser && !$this->saveEmployeeChildrenFromPost((int)$createdUser->id)) {
-                        $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudieron guardar los datos de hijos/as.';
-                    }
-                    if ($createdUser && (new AccessControl())->isReady()) {
-                        (new AccessControl())->saveScopes((int)$createdUser->id, [[
-                            'company_id' => (int)$data['company_id'],
-                            'branch_id' => (int)($data['branch_id'] ?? 0),
-                            'access_role' => $data['access_role'] ?? AccessControl::accessRoleFromLegacyRole($data['role']),
-                            'is_primary' => 1, 'is_active' => 1, 'starts_on' => $data['hire_date'] ?? '',
-                        ]], (int)$_SESSION['user_id']);
-                    }
-                    if ($createdUser && !$this->employeeRecordModel->save((int)$createdUser->id, $data['company_id'], $data['area_id'], $data['agreement_id'], $data['hire_date'], $data)) {
-                        $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudo completar el legajo ampliado.';
-                    } elseif ($createdUser && $this->userModel->isVacationProfileReady()) {
-                        $this->userModel->updateVacationProfile(
-                            (int)$createdUser->id,
-                            $data['hire_date'] ?: null,
-                            (int)($data['agreement_id'] ?? 0) > 0 ? (int)$data['agreement_id'] : null,
-                            $data['probation_start_date'] ?: null
-                        );
+                    // Los pasos posteriores nunca deben dejar la pantalla en blanco: si uno
+                    // falla, el usuario ya existe y RRHH tiene que verlo con el aviso.
+                    try {
+                        if ($createdUser && !$this->saveEmployeeChildrenFromPost((int)$createdUser->id)) {
+                            $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudieron guardar los datos de hijos/as.';
+                        }
+                        if ($createdUser && (new AccessControl())->isReady()) {
+                            (new AccessControl())->saveScopes((int)$createdUser->id, [[
+                                'company_id' => (int)$data['company_id'],
+                                'branch_id' => (int)($data['branch_id'] ?? 0),
+                                'access_role' => $data['access_role'] ?? AccessControl::accessRoleFromLegacyRole($data['role']),
+                                'is_primary' => 1, 'is_active' => 1, 'starts_on' => $data['hire_date'] ?? '',
+                            ]], (int)$_SESSION['user_id']);
+                        }
+                        if ($createdUser && !$this->employeeRecordModel->save((int)$createdUser->id, $data['company_id'], $data['area_id'], $data['agreement_id'], $data['hire_date'], $data)) {
+                            $_SESSION['flash_error'] = 'El usuario fue creado, pero no se pudo completar el legajo ampliado.';
+                        } elseif ($createdUser && $this->userModel->isVacationProfileReady()) {
+                            $this->userModel->updateVacationProfile(
+                                (int)$createdUser->id,
+                                $data['hire_date'] ?: null,
+                                (int)($data['agreement_id'] ?? 0) > 0 ? (int)$data['agreement_id'] : null,
+                                $data['probation_start_date'] ?: null
+                            );
+                        }
+                    } catch (Throwable $e) {
+                        error_log('createUser post-alta (' . $data['username'] . '): ' . $e->getMessage());
+                        $_SESSION['flash_error'] = 'El usuario fue creado, pero falló un paso posterior (permisos o legajo): '
+                            . mb_substr($e->getMessage(), 0, 180) . '. Abrí su ficha y completá lo que falte.';
                     }
                     if (empty($_SESSION['flash_error'])) {
                         $_SESSION['flash_success'] = 'Usuario creado con éxito.';
                     }
                     redirect('admin/users');
                 }
-            } else {
-                $data['companies'] = $this->companyModel->getAllCompanies();
-                $data['default_company_id'] = $this->companyModel->getDefaultCompanyId();
-                $this->view('admin/create_user', array_merge($data, $this->employmentViewData(0, $data), $this->employeeRecordViewData(0, $data['company_id']), $this->employeeChildrenViewData(0, $_POST)));
+                $detail = trim((string)($this->userModel->lastCreateError ?? ''));
+                $data['errors']['general'] = 'No se pudo crear el usuario.' . ($detail !== '' ? ' ' . $detail : ' Revisá empresa y sucursal e intentá de nuevo.');
             }
+            $data['companies'] = $this->companyModel->getAllCompanies();
+            $data['default_company_id'] = $this->companyModel->getDefaultCompanyId();
+            $this->view('admin/create_user', array_merge($data, $this->employmentViewData(0, $data), $this->employeeRecordViewData(0, $data['company_id']), $this->employeeChildrenViewData(0, $_POST)));
         } else {
             $postedRoles = AccessControl::normalizePostedRole('empleado');
             $this->view('admin/create_user', array_merge([
